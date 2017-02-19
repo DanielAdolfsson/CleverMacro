@@ -183,6 +183,14 @@ function XC.ParseSpell(name)
     local spellId = XC.GetSpellId(name)
     if spellId == nil then return end
     
+    if cost == nil then
+        XC.tip:SetSpell(spellId, "spell") 
+        local _, _, c = string.find(XC.tip.costFontString:GetText() or "", "^(%d+)")
+        if c ~= nil then
+            cost = tonumber(c)
+        end
+    end
+    
     return spellId, cost
 end
 
@@ -236,9 +244,12 @@ function XC.ShowTooltip(name)
 
     if index ~= nil then
         XC.currentMacro = name
-        if index ~= nil then
+        if index > 0  then
             GameTooltip:SetSpell(index, "spell")
             local _, rank = GetSpellName(index, "spell")
+            XC.tip:SetOwner(WorldFrame, 'ANCHOR_NONE')
+            XC.tip:SetSpell(index, "spell")
+            --XC.Log(XC.tip.rangeFontString:GetText() or "nein")
             
             GameTooltipTextRight1:SetText("|cff808080" .. rank .."|r");
             GameTooltipTextRight1:Show();
@@ -383,6 +394,12 @@ XC.frame:RegisterEvent("SPELL_UPDATE_USABLE")
 XC.frame:SetScript("OnUpdate", XC.OnUpdate)
 XC.frame:SetScript("OnEvent", XC.OnEvent)
 
+XC.tip = CreateFrame("GameTooltip")
+XC.tip.costFontString = XC.tip:CreateFontString()
+XC.tip.rangeFontString = XC.tip:CreateFontString()
+XC.tip:AddFontStrings(XC.tip:CreateFontString(), XC.tip:CreateFontString())
+XC.tip:AddFontStrings(XC.tip.costFontString, XC.tip.rangeFontString)
+
 --------------------------------------------------------------------------------
 -- Slash Commands                                                              -
 --------------------------------------------------------------------------------
@@ -417,7 +434,15 @@ SlashCmdList["XFOCUS"] = function(msg)
     end
 end
 
+SlashCmdList["XXX"] = function(msg)
+    PickupSpell(XC.GetSpellId("Rejuvenation"), "spell")
+    PlaceAction(37)
+end
+
+
 SLASH_CANCELFORM1 = "/cancelform"
+
+SLASH_XXX1 = "/xxx"
 
 LL = XC.Log
 
