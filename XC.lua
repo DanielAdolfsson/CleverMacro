@@ -8,7 +8,6 @@ XC = {}
 --------------------------------------------------------------------------------
 
 XC.spellCache = {}
-XC.currentMacro = nil
 XC.actions = {}
 XC.lastUpdate = 0
 XC.currentAction = nil
@@ -209,34 +208,6 @@ function XC.DetermineSpell(macroIndex)
     end
 end
 
-function XC.GetSpellFromAction(slot)
-    local text = GetActionText(slot)
-    if text ~= nil then
-        return XC.DetermineSpell(text)
-    end
-end
-
-function XC.ShowTooltip(name)
-    local index = XC.DetermineSpell(name)
-
-    if index ~= nil then
-        XC.currentMacro = name
-        if index > 0  then
-            GameTooltip:SetSpell(index, "spell")
-            local _, rank = GetSpellName(index, "spell")
-            XC.tip:SetOwner(WorldFrame, 'ANCHOR_NONE')
-            XC.tip:SetSpell(index, "spell")
-            
-            GameTooltipTextRight1:SetText("|cff808080" .. rank .."|r");
-            GameTooltipTextRight1:Show();
-            GameTooltip:Show()
-        end
-        return true
-    end
-    
-    return false
-end
-
 XC.ActionButtonPrefixes = {
     "ActionButton", "MultiBarLeftButton", "MultiBarRightButton", 
     "MultiBarBottomLeftButton", "MultiBarBottomRightButton", "BonusActionButton"
@@ -259,15 +230,22 @@ function XC.BroadcastEventForAction(slot, event, ...)
     this = _this
 end
 
-function XC.LoadAction(slot)
+function XC.LoadAction(slot, refresh)
     local text = GetActionText(slot)
+    
+    if XC.actions[slot] and XC.actions[slot].text == text and not refresh then
+        return
+    end
+    
     if text ~= nil then
         local macroIndex = GetMacroIndexByName(text)
+        
         if macroIndex ~= nil then
             local action = {
                 macroIndex = macroIndex,
                 spellSlot = XC.DetermineSpell(macroIndex),
-                usable = true
+                usable = true,
+                text = text
             }
             
             if action.spellSlot then
@@ -282,10 +260,11 @@ function XC.LoadAction(slot)
             return action
         end
     end
+    
+    XC.actions[slot] = nil
 end
 
 function XC.LoadActions()
-    XC.actions = {}
     for slot = 1, 120 do XC.LoadAction(slot) end
 end
 
@@ -305,6 +284,7 @@ end
 
 XC._.UseAction = UseAction
 function UseAction(slot, checkCursor, onSelf)
+    XC.LoadAction(slot)
     XC.currentAction = XC.actions[slot]
     XC._.UseAction(slot, checkCursor, onSelf)
     XC.currentAction = nil
@@ -314,31 +294,27 @@ XC._.GameTooltip = {}
 
 XC._.GameTooltip.SetAction = GameTooltip.SetAction
 function GameTooltip.SetAction(self, slot)
+    XC.LoadAction(slot)
     local action = XC.actions[slot]
     if action ~= nil then
         if action.spellSlot then
             GameTooltip:SetSpell(action.spellSlot, "spell")
         end
     else
-        XC.currentMacro = nil
         XC._.GameTooltip.SetAction(self, slot)
     end
 end
 
-XC._.GameTooltip.Hide = GameTooltip.Hide
-function GameTooltip.Hide(self)
-    currentMacroName = nil
-    XC._.GameTooltip.Hide(self)
-end
-
 XC._.IsActionInRange = IsActionInRange
 function IsActionInRange(slot, unit)
+    XC.LoadAction(slot)
     return XC.actions[slot] and true or 
         XC._.IsActionInRange(slot, unit)
 end
 
 XC._.IsUsableAction = IsUsableAction
 function IsUsableAction(slot, unit)
+    XC.LoadAction(slot)
     local action = XC.actions[slot]
     if action then 
         if action.usable then
@@ -352,6 +328,7 @@ end
 
 XC._.GetActionTexture = GetActionTexture
 function GetActionTexture(slot)
+    XC.LoadAction(slot)
     local action = XC.actions[slot]
     if action then
         return action.spellSlot and GetSpellTexture(action.spellSlot, "spell") or
@@ -363,6 +340,7 @@ end
 
 XC._.GetActionCooldown = GetActionCooldown
 function GetActionCooldown(slot)
+    XC.LoadAction(slot)
     local action = XC.actions[slot]
     if action then
         if action.spellSlot then
@@ -407,7 +385,7 @@ function XC.OnUpdate(self)
     for slot, action in pairs(XC.actions) do
         local spellSlot = action.spellSlot
         local usable = action.usable
-        local action = XC.LoadAction(slot)
+        local action = XC.LoadAction(slot, true)
 
         if action then
             if spellSlot ~= action.spellSlot then
@@ -423,9 +401,9 @@ function XC.OnEvent()
     if event == "UPDATE_MACROS" then
         XC.LoadActions()
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
-        XC.LoadActions()
+        XC.LoadAction(arg1, true)
+        XC.BroadcastEventForAction(arg1, "ACTIONBAR_SLOT_CHANGED", arg1)
     end
-        
 end
 
 XC.frame = CreateFrame("Frame", nil, UIParent)
