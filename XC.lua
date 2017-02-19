@@ -11,7 +11,7 @@ XC.spellCache = {}
 XC.currentMacro = nil
 XC.actions = {}
 XC.lastUpdate = 0
-XC.inAction = false
+XC.currentAction = nil
 XC._ = {}
 
 --------------------------------------------------------------------------------
@@ -40,6 +40,14 @@ function XC.Explode(s, p)
         table.insert(r, XC.Trim(string.sub(s, o, e - 1)))
         o = e + 1
     until false
+end
+
+function XC.GetSpellInfo(spellSlot)
+    XC.tip:SetOwner(WorldFrame, "ANCHOR_NONE")
+    XC.tip:SetSpell(spellSlot, "spell") 
+    local _, _, cost = string.find(XC.tip.costFontString:GetText() or "", "^(%d+)")
+    if cost ~= nil then cost = tonumber(cost) end
+    return cost
 end
 
 function XC.GetSpellId(name)
@@ -100,7 +108,7 @@ function XC.TestConditional(test, target)
             result = IsAltKeyDown() or IsControlKeyDown() or IsShiftKeyDown()
         else
             result = false
-            for _, mod in ipairs(explode(v, "/")) do
+            for _, mod in ipairs(XC.Explode(v, "/")) do
                 if mod == "alt" then
                     result = result or IsAltKeyDown()
                 elseif mod == "ctrl" then
@@ -114,7 +122,7 @@ function XC.TestConditional(test, target)
         local currentForm = XC.GetCurrentShapeshiftForm()
         if v ~= nil then
             result = false
-            for _, form in ipairs(explode(v, "/")) do
+            for _, form in ipairs(XC.Explode(v, "/")) do
                 local index = tonumber(form)
                 if index ~= nil then
                     result = result or (currentForm == index)
@@ -169,65 +177,34 @@ function XC.Fetch(cmd)
     end
 end
 
-function XC.ParseSpell(name)
-    local _, e, info = string.find(name, "^%s*{([^}]+)}%s*")
-    
-    local cost = nil
-    
-    if info ~= nil then
-        name = string.sub(name, e + 1)
-        local parts = XC.Explode(info, ",")
-        cost = tonumber(XC.Trim(parts[1]))
-    end
-
-    local spellId = XC.GetSpellId(name)
-    if spellId == nil then return end
-    
-    if cost == nil then
-        XC.tip:SetSpell(spellId, "spell") 
-        local _, _, c = string.find(XC.tip.costFontString:GetText() or "", "^(%d+)")
-        if c ~= nil then
-            cost = tonumber(c)
-        end
-    end
-    
-    return spellId, cost
-end
-
-function XC.DetermineSpell(name)
-    local index = GetMacroIndexByName(name)
-    local xtt = false
-    if index > 0 then
-        local _, _, body = GetMacroInfo(index)
-        local _, _, arg = string.find(body, "^%s*#showtooltip([^\n]*)")
-        if arg ~= nil then
-            xtt = true
-            if XC.Trim(arg) == "" then
-                -- We'll parse each /cast manually
-                for _, line in XC.Explode(body, "\n") do
-                    local _, _, arg = string.find(line, "^%s*/cast%s+(.*)")
-                    if arg ~= nil then
-                        local spell = XC.Fetch(arg)
-                        if spell ~= nil and XC.Trim(spell) ~= "" then
-                            local spellId, cost = XC.ParseSpell(spell)
-                            if spellId ~= nil then
-                                return spellId, cost
-                            end
-                            break
-                        end
-                    end
+function XC.DetermineSpell(macroIndex)
+    local _, _, body = GetMacroInfo(macroIndex)
+    local _, _, arg = string.find(body, "^%s*#showtooltip([^\n]*)")
+    if arg ~= nil then
+        arg = XC.Trim(XC.Fetch(arg)) or ""
+        if arg ~= "" then
+            local spell = XC.Fetch(arg)
+            if spell ~= nil and XC.Trim(spell) ~= "" then
+                local spellId = XC.GetSpellId(spell)
+                if spellId ~= nil then
+                    return spellId
                 end
-            else
-                local spell = XC.Fetch(arg)
-                if spell ~= nil and XC.Trim(spell) ~= "" then
-                    local spellId, cost = XC.ParseSpell(spell)
-                    if spellId ~= nil then
-                        return spellId, cost
+            end
+        else        
+            -- We'll parse each /cast manually
+            for _, line in XC.Explode(body, "\n") do
+                local _, _, arg = string.find(line, "^%s*/cast%s+(.*)")
+                if arg ~= nil then
+                    local spell = XC.Fetch(arg)
+                    if spell ~= nil and XC.Trim(spell) ~= "" then
+                        local spellId = XC.GetSpellId(spell)
+                        if spellId ~= nil then
+                            return spellId
+                        end
+                        break
                     end
                 end
             end
-            
-            return 0
         end
     end
 end
@@ -249,7 +226,6 @@ function XC.ShowTooltip(name)
             local _, rank = GetSpellName(index, "spell")
             XC.tip:SetOwner(WorldFrame, 'ANCHOR_NONE')
             XC.tip:SetSpell(index, "spell")
-            --XC.Log(XC.tip.rangeFontString:GetText() or "nein")
             
             GameTooltipTextRight1:SetText("|cff808080" .. rank .."|r");
             GameTooltipTextRight1:Show();
@@ -261,26 +237,67 @@ function XC.ShowTooltip(name)
     return false
 end
 
+XC.ActionButtonPrefixes = {
+    "ActionButton", "MultiBarLeftButton", "MultiBarRightButton", 
+    "MultiBarBottomLeftButton", "MultiBarBottomRightButton", "BonusActionButton"
+}
+
+function XC.BroadcastEventForAction(slot, event, ...)
+    local _this = this
+    for _, name in ipairs(XC.ActionButtonPrefixes) do 
+        for i = 1, 12 do
+            local actionButton = getglobal(name .. i)
+            if actionButton ~= nil then
+                if ActionButton_GetPagedID(actionButton) == slot then
+                    arg1, arg2, arg3, arg4, arg5, arg6, arg7 = unpack(arg)
+                    this = actionButton
+                    ActionButton_OnEvent(event)
+                end
+            end
+        end
+    end
+    this = _this
+end
+
+function XC.LoadAction(slot)
+    local text = GetActionText(slot)
+    if text ~= nil then
+        local macroIndex = GetMacroIndexByName(text)
+        if macroIndex ~= nil then
+            local action = {
+                macroIndex = macroIndex,
+                spellSlot = XC.DetermineSpell(macroIndex),
+                usable = true
+            }
+            
+            if action.spellSlot then
+                action.cost = XC.GetSpellInfo(action.spellSlot)
+            end
+            
+            action.usable = 
+                (not action.cost) or (UnitMana("player") >= action.cost)
+                
+            XC.actions[slot] = action
+            
+            return action
+        end
+    end
+end
+
+function XC.LoadActions()
+    XC.actions = {}
+    for slot = 1, 120 do XC.LoadAction(slot) end
+end
+
+XC.LoadActions()
+
 --------------------------------------------------------------------------------
 -- Overrides                                                                   -
 --------------------------------------------------------------------------------
 
-XC._.ActionButton_Update = ActionButton_Update
-function ActionButton_Update()
-    local slot = ActionButton_GetPagedID(this)
-    XC.actions[this:GetName()] = nil
-    if slot ~= nil then
-        local text = GetActionText(slot)
-        if text ~= nil then
-            XC.actions[this:GetName()] = text
-        end
-    end
-    XC._.ActionButton_Update(this)
-end
-
 XC._.SendChatMessage = SendChatMessage
 function SendChatMessage(msg, ...)
-    if XC.inAction and string.find(msg, "^%s*#showtooltip") then
+    if XC.currentAction and string.find(msg, "^%s*#showtooltip") then
         return
     end
     XC._.SendChatMessage(msg, unpack(arg))
@@ -288,20 +305,19 @@ end
 
 XC._.UseAction = UseAction
 function UseAction(slot, checkCursor, onSelf)
-    XC.inAction = true
+    XC.currentAction = XC.actions[slot]
     XC._.UseAction(slot, checkCursor, onSelf)
-    XC.inAction = false
+    XC.currentAction = nil
 end
 
 XC._.GameTooltip = {}
 
 XC._.GameTooltip.SetAction = GameTooltip.SetAction
 function GameTooltip.SetAction(self, slot)
-    local text = GetActionText(slot)
-    if text ~= nil then
-        if not XC.ShowTooltip(text) then
-            XC.currentMacro = nil
-            XC._.GameTooltip.SetAction(self, slot)
+    local action = XC.actions[slot]
+    if action ~= nil then
+        if action.spellSlot then
+            GameTooltip:SetSpell(action.spellSlot, "spell")
         end
     else
         XC.currentMacro = nil
@@ -313,6 +329,50 @@ XC._.GameTooltip.Hide = GameTooltip.Hide
 function GameTooltip.Hide(self)
     currentMacroName = nil
     XC._.GameTooltip.Hide(self)
+end
+
+XC._.IsActionInRange = IsActionInRange
+function IsActionInRange(slot, unit)
+    return XC.actions[slot] and true or 
+        XC._.IsActionInRange(slot, unit)
+end
+
+XC._.IsUsableAction = IsUsableAction
+function IsUsableAction(slot, unit)
+    local action = XC.actions[slot]
+    if action then 
+        if action.usable then
+            return true, false
+        else
+            return false, true
+        end
+    end
+    return XC._.IsUsableAction(slot, unit)
+end
+
+XC._.GetActionTexture = GetActionTexture
+function GetActionTexture(slot)
+    local action = XC.actions[slot]
+    if action then
+        return action.spellSlot and GetSpellTexture(action.spellSlot, "spell") or
+            "Interface\\Icons\\INV_Misc_QuestionMark"
+    else
+        return XC._.GetActionTexture(slot)
+    end
+end
+
+XC._.GetActionCooldown = GetActionCooldown
+function GetActionCooldown(slot)
+    local action = XC.actions[slot]
+    if action then
+        if action.spellSlot then
+            return GetSpellCooldown(action.spellSlot, "spell")
+        else
+            return 0, 0, 0
+        end
+    else
+        return XC._.GetActionCooldown(slot)
+    end
 end
 
 XC._.GameTooltip.SetOwner = GameTooltip.SetOwner
@@ -344,55 +404,42 @@ function XC.OnUpdate(self)
     if (time - XC.lastUpdate) < 0.1 then return end
     XC.lastUpdate = time
 
-    if XC.currentMacro then
-        XC.ShowTooltip(XC.currentMacro)
-    end
-    
-    for k, v in pairs(XC.actions) do
-        if v ~= nil then
-            local icon = getglobal(k .. "Icon");
-            local spell, cost = XC.DetermineSpell(v)
-            local normalTexture = getglobal(k .. "NormalTexture");
-            if spell ~= nil and spell > 0 then
-                local texture = GetSpellTexture(spell, "spell")
-                icon:SetTexture(texture)
-                
-                
-                local cooldown = getglobal(k .. "Cooldown");
-                local start, duration, enable = GetSpellCooldown(spell, "spell");
-                CooldownFrame_SetTimer(cooldown, start, duration, enable);
-                
-                
-                
-                
-                local notEnoughMana = UnitMana("player") < (cost or 0)
-                local isUsable = not notEnoughMana
-                
-                if isUsable then
-                    icon:SetVertexColor(1.0, 1.0, 1.0);
-                    normalTexture:SetVertexColor(1.0, 1.0, 1.0);
-                elseif notEnoughMana then
-                    icon:SetVertexColor(0.5, 0.5, 1.0);
-                    normalTexture:SetVertexColor(0.5, 0.5, 1.0);
-                else
-                    icon:SetVertexColor(0.4, 0.4, 0.4);
-                    normalTexture:SetVertexColor(1.0, 1.0, 1.0);
-                end
-            elseif spell ~= nil and spell == 0 then
-                icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+    for slot, action in pairs(XC.actions) do
+        local spellSlot = action.spellSlot
+        local usable = action.usable
+        local action = XC.LoadAction(slot)
+
+        if action then
+            if spellSlot ~= action.spellSlot then
+                XC.BroadcastEventForAction(slot, "ACTIONBAR_SLOT_CHANGED", slot)
+            elseif usable ~= action.usable then
+                XC.BroadcastEventForAction(slot, "ACTIONBAR_UPDATE_USABLE")
             end
         end
     end
 end
  
 function XC.OnEvent()
-    -- XC.Log("LE EVENT " .. event)
+    if event == "UPDATE_MACROS" then
+        XC.LoadActions()
+    elseif event == "ACTIONBAR_SLOT_CHANGED" then
+        XC.LoadActions()
+    end
+        
 end
 
 XC.frame = CreateFrame("Frame", nil, UIParent)
-XC.frame:RegisterEvent("SPELL_UPDATE_USABLE")
 XC.frame:SetScript("OnUpdate", XC.OnUpdate)
 XC.frame:SetScript("OnEvent", XC.OnEvent)
+XC.frame:RegisterEvent("UPDATE_MACROS")
+XC.frame:RegisterEvent("ACTIONBAR_SHOWGRID");
+XC.frame:RegisterEvent("ACTIONBAR_HIDEGRID");
+XC.frame:RegisterEvent("ACTIONBAR_PAGE_CHANGED");
+XC.frame:RegisterEvent("ACTIONBAR_SLOT_CHANGED");
+XC.frame:RegisterEvent("ACTIONBAR_UPDATE_STATE");
+XC.frame:RegisterEvent("ACTIONBAR_UPDATE_USABLE");
+XC.frame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN");
+XC.frame:RegisterEvent("SPELL_UPDATE_USABLE");
 
 XC.tip = CreateFrame("GameTooltip")
 XC.tip.costFontString = XC.tip:CreateFontString()
@@ -407,9 +454,9 @@ XC.tip:AddFontStrings(XC.tip.costFontString, XC.tip.rangeFontString)
 SlashCmdList["CAST"] = function(msg)
     local name, target = XC.Fetch(msg)
     if name ~= nil then
-        local spellId = XC.ParseSpell(name)
+        local spellId = XC.GetSpellId(name)
         if spellId == nil then return end
-    
+        
         if target ~= "target" then TargetUnit(target) end
         CastSpell(spellId, "spell")
         if target ~= "target" then TargetLastTarget() end
@@ -434,15 +481,7 @@ SlashCmdList["XFOCUS"] = function(msg)
     end
 end
 
-SlashCmdList["XXX"] = function(msg)
-    PickupSpell(XC.GetSpellId("Rejuvenation"), "spell")
-    PlaceAction(37)
-end
-
-
 SLASH_CANCELFORM1 = "/cancelform"
-
-SLASH_XXX1 = "/xxx"
 
 LL = XC.Log
 
