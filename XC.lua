@@ -11,6 +11,8 @@ XC.spellCache = {}
 XC.actions = {}
 XC.lastUpdate = 0
 XC.currentAction = nil
+XC.sequences = {}
+XC.currentSequence = nil
 XC._ = {}
 
 --------------------------------------------------------------------------------
@@ -176,6 +178,31 @@ function XC.Fetch(cmd)
     end
 end
 
+function XC.LookupSequence(s)
+    local sequence = XC.sequences[s]
+    if sequence then return sequence end
+    
+    local sequence = {
+        lastUpdate = GetTime(),
+        spells = {},
+        index = 1,
+        spellSlot = nil,
+        status = 0
+    }
+
+    XC.sequences[s] = sequence
+    
+    local _, e, reset = string.find(s, "^%s*reset=([%w/]+)%s*")
+    if e then s = XC.Trim(string.sub(s, e + 1)) end
+
+    for _, spell in ipairs(XC.Explode(s, "%s*,%s*")) do
+        table.insert(sequence.spells, XC.GetSpellId(spell))
+    end
+
+    sequence.spellSlot = sequence.spells[1]
+    return sequence
+end
+
 function XC.DetermineSpell(macroIndex)
     local _, _, body = GetMacroInfo(macroIndex)
     local _, _, arg = string.find(body, "^%s*#showtooltip([^\n]*)")
@@ -186,7 +213,7 @@ function XC.DetermineSpell(macroIndex)
             if spell ~= nil and XC.Trim(spell) ~= "" then
                 local spellId = XC.GetSpellId(spell)
                 if spellId ~= nil then
-                    return spellId
+                    return spellId, true
                 end
             end
         else        
@@ -198,14 +225,27 @@ function XC.DetermineSpell(macroIndex)
                     if spell ~= nil and XC.Trim(spell) ~= "" then
                         local spellId = XC.GetSpellId(spell)
                         if spellId ~= nil then
-                            return spellId
+                            return spellId, true
                         end
                         break
                     end
                 end
+                
+                local _, _, arg = string.find(line, "^%s*/castsequence%s+(.*)")
+                if arg ~= nil then
+                    local s = XC.Fetch(arg)
+                    if s then
+                        local sequence = XC.LookupSequence(s)
+                        if sequence then return sequence.spells[sequence.index], true end
+                    end
+                end
             end
         end
+        
+        return false, true
     end
+    
+    return false, false
 end
 
 XC.ActionButtonPrefixes = {
@@ -233,17 +273,21 @@ end
 function XC.LoadAction(slot, refresh)
     local text = GetActionText(slot)
     
-    if XC.actions[slot] and XC.actions[slot].text == text and not refresh then
-        return
+    local action = XC.actions[slot]
+    if action and action.text == text and not refresh then
+        return action
     end
     
     if text ~= nil then
         local macroIndex = GetMacroIndexByName(text)
         
         if macroIndex ~= nil then
-            local action = {
+            local spellSlot, showTooltip = XC.DetermineSpell(macroIndex)
+        
+            action = {
                 macroIndex = macroIndex,
-                spellSlot = XC.DetermineSpell(macroIndex),
+                spellSlot = spellSlot,
+                showTooltip = showTooltip,
                 usable = true,
                 text = text
             }
@@ -284,8 +328,7 @@ end
 
 XC._.UseAction = UseAction
 function UseAction(slot, checkCursor, onSelf)
-    XC.LoadAction(slot)
-    XC.currentAction = XC.actions[slot]
+    XC.currentAction = XC.LoadAction(slot)
     XC._.UseAction(slot, checkCursor, onSelf)
     XC.currentAction = nil
 end
@@ -296,7 +339,7 @@ XC._.GameTooltip.SetAction = GameTooltip.SetAction
 function GameTooltip.SetAction(self, slot)
     XC.LoadAction(slot)
     local action = XC.actions[slot]
-    if action ~= nil then
+    if action then
         if action.spellSlot then
             GameTooltip:SetSpell(action.spellSlot, "spell")
         end
@@ -307,30 +350,32 @@ end
 
 XC._.IsActionInRange = IsActionInRange
 function IsActionInRange(slot, unit)
-    XC.LoadAction(slot)
-    return XC.actions[slot] and true or 
-        XC._.IsActionInRange(slot, unit)
+    local action = XC.LoadAction(slot)
+    if action and action.showTooltip then
+        return action.spellSlot and true 
+    else
+        return XC._.IsActionInRange(slot, unit)
+    end
 end
 
 XC._.IsUsableAction = IsUsableAction
 function IsUsableAction(slot, unit)
-    XC.LoadAction(slot)
-    local action = XC.actions[slot]
-    if action then 
+    local action = XC.LoadAction(slot)
+    if action and action.showTooltip then 
         if action.usable then
             return true, false
         else
             return false, true
         end
+    else
+        return XC._.IsUsableAction(slot, unit)
     end
-    return XC._.IsUsableAction(slot, unit)
 end
 
 XC._.GetActionTexture = GetActionTexture
 function GetActionTexture(slot)
-    XC.LoadAction(slot)
-    local action = XC.actions[slot]
-    if action then
+    local action = XC.LoadAction(slot)
+    if action and action.showTooltip then
         return action.spellSlot and GetSpellTexture(action.spellSlot, "spell") or
             "Interface\\Icons\\INV_Misc_QuestionMark"
     else
@@ -340,9 +385,8 @@ end
 
 XC._.GetActionCooldown = GetActionCooldown
 function GetActionCooldown(slot)
-    XC.LoadAction(slot)
-    local action = XC.actions[slot]
-    if action then
+    local action = XC.LoadAction(slot)
+    if action and action.showTooltip then
         if action.spellSlot then
             return GetSpellCooldown(action.spellSlot, "spell")
         else
@@ -377,6 +421,19 @@ end
 
 function XC.OnUpdate(self)
     local time = GetTime()
+    
+    local sequence = XC.currentSequence
+    if sequence and sequence.status >= 2 and 
+            (time - sequence.lastUpdate) >= 0.2 then
+        if sequence.status == 2 then
+            if sequence.index >= table.getn(sequence.spells) then
+                sequence.index = 1
+            else
+                sequence.index = sequence.index + 1
+            end
+        end
+        XC.currentSequence = nil
+    end
 
     -- Slow down a bit.
     if (time - XC.lastUpdate) < 0.1 then return end
@@ -397,27 +454,43 @@ function XC.OnUpdate(self)
     end
 end
  
+function XC.LogEvent()
+    local s = "event = " .. event
+    for i = 1, 16 do
+        local arg = getglobal("arg" .. i)
+        if arg ~= nil then s = s .. ", arg" .. i .. " = " .. arg end
+    end
+    XC.Log(s)
+end
+ 
 function XC.OnEvent()
     if event == "UPDATE_MACROS" then
         XC.LoadActions()
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
         XC.LoadAction(arg1, true)
         XC.BroadcastEventForAction(arg1, "ACTIONBAR_SLOT_CHANGED", arg1)
+    elseif XC.currentSequence then
+        if event == "SPELLCAST_START" then
+            XC.currentSequence.status = 1
+        elseif event == "SPELLCAST_STOP" then
+            XC.currentSequence.status = 2
+            XC.currentSequence.lastUpdate = GetTime()
+        elseif event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
+            XC.currentSequence.status = 3
+        end
     end
 end
 
 XC.frame = CreateFrame("Frame", nil, UIParent)
 XC.frame:SetScript("OnUpdate", XC.OnUpdate)
 XC.frame:SetScript("OnEvent", XC.OnEvent)
+
 XC.frame:RegisterEvent("UPDATE_MACROS")
-XC.frame:RegisterEvent("ACTIONBAR_SHOWGRID");
-XC.frame:RegisterEvent("ACTIONBAR_HIDEGRID");
-XC.frame:RegisterEvent("ACTIONBAR_PAGE_CHANGED");
-XC.frame:RegisterEvent("ACTIONBAR_SLOT_CHANGED");
-XC.frame:RegisterEvent("ACTIONBAR_UPDATE_STATE");
-XC.frame:RegisterEvent("ACTIONBAR_UPDATE_USABLE");
-XC.frame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN");
-XC.frame:RegisterEvent("SPELL_UPDATE_USABLE");
+XC.frame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+XC.frame:RegisterEvent("SPELLCAST_START")
+XC.frame:RegisterEvent("SPELLCAST_STOP")
+XC.frame:RegisterEvent("SPELLCAST_FAILED")
+XC.frame:RegisterEvent("SPELLCAST_INTERRUPTED")
 
 XC.tip = CreateFrame("GameTooltip")
 XC.tip.costFontString = XC.tip:CreateFontString()
@@ -434,10 +507,25 @@ SlashCmdList["CAST"] = function(msg)
     if name ~= nil then
         local spellId = XC.GetSpellId(name)
         if spellId == nil then return end
-        
         if target ~= "target" then TargetUnit(target) end
         CastSpell(spellId, "spell")
         if target ~= "target" then TargetLastTarget() end
+    end
+end
+
+SlashCmdList["CASTSEQUENCE"] = function(msg)
+    local s, target = XC.Fetch(msg)
+    if s ~= nil then
+        local sequence = XC.LookupSequence(s)
+        local spellSlot = sequence.spells[sequence.index]
+        
+        if spellSlot then
+            if target ~= "target" then TargetUnit(target) end
+            XC.currentSequence = sequence
+            sequence.lastUpdate = GetTime() 
+            CastSpell(spellSlot, "spell")
+            if target ~= "target" then TargetLastTarget() end
+        end
     end
 end
 
@@ -460,6 +548,7 @@ SlashCmdList["XFOCUS"] = function(msg)
 end
 
 SLASH_CANCELFORM1 = "/cancelform"
+SLASH_CASTSEQUENCE1 = "/castsequence"
 
 LL = XC.Log
 
