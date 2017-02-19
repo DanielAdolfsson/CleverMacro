@@ -180,7 +180,12 @@ end
 
 function XC.LookupSequence(s)
     local sequence = XC.sequences[s]
-    if sequence then return sequence end
+    if sequence then 
+        if XC.currentSequence ~= sequence then
+            sequence.lastUpdate = GetTime()
+        end
+        return sequence 
+    end
     
     local sequence = {
         lastUpdate = GetTime(),
@@ -421,8 +426,9 @@ end
 
 function XC.OnUpdate(self)
     local time = GetTime()
-    
+
     local sequence = XC.currentSequence
+    
     if sequence and sequence.status >= 2 and 
             (time - sequence.lastUpdate) >= 0.2 then
         if sequence.status == 2 then
@@ -434,7 +440,19 @@ function XC.OnUpdate(self)
         end
         XC.currentSequence = nil
     end
-
+    
+    if math.random() < 0.01  and false then
+        -- Garbage collection of old sequences.
+        local newSequences = {}
+        for _, sequence in XC.sequences do
+            if (time - sequence.lastUpdate) < 30 or
+                    XC.lastSequence == sequence then
+                table.insert(newSequences, sequence)
+            end
+        end
+        XC.sequences = newSequences
+    end
+    
     -- Slow down a bit.
     if (time - XC.lastUpdate) < 0.1 then return end
     XC.lastUpdate = time
