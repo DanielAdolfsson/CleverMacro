@@ -10,13 +10,10 @@
     1. Commands
     ---------------------------------------------------------------------------
         To commands have been implemented this far:
-            /xcast and /xcancelform.
-    
-        The syntax of both should be similar to retail WoW 
             /cast and /cancelform.
     
         Example:
-            /xcast [mod:alt] Healing Touch; Rejuvenation
+            /cast [mod:alt] Healing Touch; Rejuvenation
             
     2. Conditions
     ---------------------------------------------------------------------------
@@ -28,24 +25,13 @@
         Example:
             nomod:alt,help
         
-    2. #showtooltip
+    3. #showtooltip
     ---------------------------------------------------------------------------
-        While #showtooltip isn't supported, XC do have something similar.
+        In order to dynamically change the icon and tooltip, you need to
+        place #showtooltip at the top of your macro.
         
-        Put the following line at the top of your macro:
-            /xtt
-            
-        It's also possible to use conditions with /xtt    
         
-        Example
-            /xtt
-            /xtt [noform] Bear Form
-        
-        Note
-            /xtt is eperimental and it's not certain it will work with other 
-            action bars than the blizzard ones.
-        
-    3. Issues and limitations
+    4. Issues and limitations
     ---------------------------------------------------------------------------
         - Macros must have a unique name. If something bugs out, you should 
           first try to rename it and see if that solves the problem. 
