@@ -467,6 +467,7 @@ XC._.GetActionTexture = GetActionTexture
 function GetActionTexture(slot)
     local action = XC.GetAction(slot)
     if action and action.macro then
+        if not action.macro.tooltips then return action.macro.iconTexture end
         local spellSlot = XC.GetMacroTooltipSpellSlot(action.macro)
         if spellSlot then return GetSpellTexture(spellSlot, "spell") end
         return "Interface\\Icons\\INV_Misc_QuestionMark"
