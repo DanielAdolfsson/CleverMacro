@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
--- CleverMacros v1.1 (2017) by _brain                                    -
+-- CleverMacro v1.2 alpha by _brain                                    -
 --------------------------------------------------------------------------------
 
 local VERSION = "1.2 alpha"
@@ -694,4 +694,4 @@ end
 SLASH_CANCELFORM1 = "/cancelform"
 SLASH_CASTSEQUENCE1 = "/castsequence"
      
-DEFAULT_CHAT_FRAME:AddMessage("|cFF00CCCCCleverMacros (|r" .. VERSION .. "|cFF00CCCC) loaded|r")
+DEFAULT_CHAT_FRAME:AddMessage("|cFF00CCCCCleverMacro (|r" .. VERSION .. "|cFF00CCCC) loaded|r")
