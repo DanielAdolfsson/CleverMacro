@@ -1,39 +1,32 @@
 --------------------------------------------------------------------------------
--- eXtended Commands v1.01 (2017) by _brain                                    -
---------------------------------------------------------------------------------
-XC = {}
-
---------------------------------------------------------------------------------
--- Variables                                                                   -
+-- CleverMacros v1.1 (2017) by _brain                                    -
 --------------------------------------------------------------------------------
 
-XC.spellCache = {}
-XC.actions = {}
-XC.lastUpdate = 0
-XC.currentAction = nil
-XC.currentSequence = nil
-XC.mouseOverUnit = nil
-XC.macros = {}
-XC.castSequenceCache = {}
+local VERSION = "1.2 alpha"
 
-XC._ = {}
+local spellCache = {}
+local actions = {}    
+local lastUpdate = 0    
+local currentAction = nil    
+local currentSequence = nil    
+local mouseOverUnit = nil    
+local macros = {}    
+local castSequenceCache = {}    
 
---------------------------------------------------------------------------------
--- Misc                                                                        -
---------------------------------------------------------------------------------
+local frame
 
-function XC.Trim(s)
+local function Trim(s)
     if s == nil then return nil end
     local _, b = string.find(s, "^%s*")
     local e = string.find(s, "%s*$", b + 1)
     return string.sub(s, b + 1, e - 1)
 end
 
-function XC.Log(text)
-    DEFAULT_CHAT_FRAME:AddMessage("XC :: " .. text)
+local function Log(text)
+    DEFAULT_CHAT_FRAME:AddMessage("|cFF00CCCCCleverMacros ::|r " .. text)
 end
 
-function XC.Split(s, p)
+local function Split(s, p)
     local r, o = {}, 1
     repeat
         local b, e = string.find(s, p, o)
@@ -46,18 +39,18 @@ function XC.Split(s, p)
     until false
 end
 
-function XC.GetSpellInfo(spellSlot)
-    XC.tip:SetOwner(WorldFrame, "ANCHOR_NONE")
-    XC.tip:SetSpell(spellSlot, "spell") 
-    local _, _, cost = string.find(XC.tip.costFontString:GetText() or "", "^(%d+)")
+local function GetSpellInfo(spellSlot)
+    frame:SetOwner(WorldFrame, "ANCHOR_NONE")
+    frame:SetSpell(spellSlot, "spell") 
+    local _, _, cost = string.find(frame.costFontString:GetText() or "", "^(%d+)")
     if cost ~= nil then cost = tonumber(cost) end
     return cost
 end
 
-function XC.GetSpellSlotByName(name)
+local function GetSpellSlotByName(name)
     name = string.lower(name)
     
-    local index = XC.spellCache[name]
+    local index = spellCache[name]
     if index ~= nil and index < 0 then
         return nil
     end
@@ -67,30 +60,30 @@ function XC.GetSpellSlotByName(name)
         for index = offset + 1, offset + count do
             local spell, rank = GetSpellName(index, "spell")
             spell = string.lower(spell) rank = string.lower(rank)
-            XC.spellCache[spell] = index
-            XC.spellCache[spell .. "(" .. rank .. ")"] = index
+            spellCache[spell] = index
+            spellCache[spell .. "(" .. rank .. ")"] = index
         end
     end
 
-    local index = XC.spellCache[name]
-    if index == nil then XC.spellCache[name] = -1 end
+    local index = spellCache[name]
+    if index == nil then spellCache[name] = -1 end
     return index;
 end
 
-function XC.GetCurrentShapeshiftForm()
+local function GetCurrentShapeshiftForm()
     for index = 1, GetNumShapeshiftForms() do 
         local _, _, active = GetShapeshiftFormInfo(index)
         if active then return index end
     end
     return nil
-end
-
-function XC.CancelShapeshiftForm(index)
-    local index = XC.GetCurrentShapeshiftForm(index)
+end    
+    
+local function CancelShapeshiftForm(index)
+    local index =GetCurrentShapeshiftForm(index)
     if index ~= nil then CastShapeshiftForm(index) end
 end
 
-function XC.TestConditions(conditions, target)
+local function TestConditions(conditions, target)
     local result = true
 
     if target == "mouseover" then
@@ -117,7 +110,7 @@ function XC.TestConditions(conditions, target)
                 result = IsAltKeyDown() or IsControlKeyDown() or IsShiftKeyDown()
             else
                 result = false
-                for _, mod in ipairs(XC.Split(v, "/")) do
+                for _, mod in ipairs(Split(v, "/")) do
                     if mod == "alt" then
                         result = result or IsAltKeyDown()
                     elseif mod == "ctrl" then
@@ -128,10 +121,10 @@ function XC.TestConditions(conditions, target)
                 end
             end
         elseif mod == "form" or mod == "stance" then
-            local currentForm = XC.GetCurrentShapeshiftForm()
+            local currentForm = GetCurrentShapeshiftForm()
             if v ~= "" then
                 result = false
-                for _, form in ipairs(XC.Split(v, "/")) do
+                for _, form in ipairs(Split(v, "/")) do
                     local index = tonumber(form)
                     if index ~= nil then
                         result = result or (currentForm == index)
@@ -152,12 +145,12 @@ function XC.TestConditions(conditions, target)
     return true, target
 end
 
-function XC.ParseArguments(s)
-    if XC.Trim(s) == "" then return {} end
+local function ParseArguments(s)
+    if Trim(s) == "" then return {} end
     
     local args = {}
     
-    for _, sarg in ipairs(XC.Split(s, ";")) do
+    for _, sarg in ipairs(Split(s, ";")) do
         local arg = { 
             conditionGroups = {}, 
             text = nil
@@ -175,13 +168,13 @@ function XC.ParseArguments(s)
             }
             table.insert(arg.conditionGroups, conditionGroup)
             
-            for _, scond in ipairs(XC.Split(sconds, ",")) do
+            for _, scond in ipairs(Split(sconds, ",")) do
                 local _, _, a, k, q, v = string.find(scond, "^%s*(@?)(%w+)(:?)([^%s]*)%s*$");        
                 if a then
                     if a == "@" and q == "" and v == "" then
                         conditionGroup.target = k
                     elseif a == "" and ((q == "" and v == "") or q == ":") then
-                        conditionGroup.conditions[string.lower(k)] = string.lower(XC.Trim(v))
+                        conditionGroup.conditions[string.lower(k)] = string.lower(Trim(v))
                     end
                 end
             end
@@ -189,7 +182,7 @@ function XC.ParseArguments(s)
             offset = e + 1
         until false
         
-        arg.text = XC.Trim(string.sub(sarg, offset))
+        arg.text = Trim(string.sub(sarg, offset))
 
         if table.getn(arg.conditionGroups) == 0 then
             local conditionGroup = {
@@ -204,13 +197,13 @@ function XC.ParseArguments(s)
     return args
 end
 
-function XC.ParseArguments_Cast(s)
+local function ParseArguments_Cast(s)
     local spells = {}
     
-    for _, arg in ipairs(XC.ParseArguments(s)) do
+    for _, arg in ipairs(ParseArguments(s)) do
         local spell = {
             conditionGroups = arg.conditionGroups,
-            spellSlot = XC.GetSpellSlotByName(XC.Trim(arg.text))
+            spellSlot = GetSpellSlotByName(Trim(arg.text))
         }
         table.insert(spells, spell)
     end
@@ -218,12 +211,12 @@ function XC.ParseArguments_Cast(s)
     return spells
 end
 
-function XC.ParseArguments_CastSequence(s)
-    s = XC.Trim(s)
-    local sequence = XC.castSequenceCache[s]
+local function ParseArguments_CastSequence(s)
+    s = Trim(s)
+    local sequence = castSequenceCache[s]
     if sequence then return sequence end
 
-    local args = XC.ParseArguments(s)
+    local args = ParseArguments(s)
     if not args[1] then return sequence end
 
     sequence = {
@@ -233,7 +226,7 @@ function XC.ParseArguments_CastSequence(s)
         reset = {},
         status = 0
     }
-    XC.castSequenceCache[s] = sequence
+    castSequenceCache[s] = sequence
     
     sequence.conditionGroups = args[1].conditionGroups
     
@@ -241,7 +234,7 @@ function XC.ParseArguments_CastSequence(s)
     s = e and string.sub(args[1].text, e + 1) or args[1].text
 
     if reset then
-        for _, rule in ipairs(XC.Split(reset, "/")) do
+        for _, rule in ipairs(Split(reset, "/")) do
             local secs = tonumber(rule)
             if secs and secs > 0 then
                 if not sequence.reset.secs or secs < sequence.reset.secs then
@@ -253,15 +246,15 @@ function XC.ParseArguments_CastSequence(s)
         end
     end
     
-    for _, name in ipairs(XC.Split(s, ",")) do
-        local spellSlot = XC.GetSpellSlotByName(XC.Trim(name))
-        table.insert(sequence.spells, XC.GetSpellSlotByName(XC.Trim(name)))
+    for _, name in ipairs(Split(s, ",")) do
+        local spellSlot = GetSpellSlotByName(Trim(name))
+        table.insert(sequence.spells, GetSpellSlotByName(Trim(name)))
     end
     
     return sequence
 end
 
-function XC.ParseMacro(name)
+local function ParseMacro(name)
     local macroIndex = GetMacroIndexByName(name)
     if macroIndex == 0 then return nil end
 
@@ -274,15 +267,15 @@ function XC.ParseMacro(name)
         commands = {}
     }
     
-    for i, line in ipairs(XC.Split(body, "\n")) do
+    for i, line in ipairs(Split(body, "\n")) do
         if i == 1 then
             local _, _, s = string.find(line, "^%s*#showtooltip(.*)$")
             if s and not string.find(s, "^%w") then
                 macro.tooltips = {}
-                for _, arg in ipairs(XC.ParseArguments(s)) do
+                for _, arg in ipairs(ParseArguments(s)) do
                     local tooltip = {
                         conditionGroups = arg.conditionGroups,
-                        spellSlot = XC.GetSpellSlotByName(XC.Trim(arg.text))
+                        spellSlot = GetSpellSlotByName(Trim(arg.text))
                     }
                     table.insert(macro.tooltips, tooltip)
                 end
@@ -298,9 +291,9 @@ function XC.ParseMacro(name)
                 }
                 table.insert(macro.commands, command)
                 if name == "cast" then
-                    command.spells = XC.ParseArguments_Cast(s)
+                    command.spells = ParseArguments_Cast(s)
                 elseif name == "castsequence" then
-                    command.sequence = XC.ParseArguments_CastSequence(s)
+                    command.sequence = ParseArguments_CastSequence(s)
                 end
             end
         end
@@ -309,13 +302,13 @@ function XC.ParseMacro(name)
     return macro
 end
 
-function XC.GetMacroTooltipSpellSlot(macro)
+local function GetMacroTooltipSpellSlot(macro)
     local spellSlot
     
     if macro.tooltips then
         for _, tooltip in ipairs(macro.tooltips) do
             for _, conditionGroup in ipairs(tooltip.conditionGroups) do
-                if XC.TestConditions(conditionGroup.conditions, conditionGroup.target) then
+                if TestConditions(conditionGroup.conditions, conditionGroup.target) then
                     return tooltip.spellSlot
                 end
             end
@@ -326,7 +319,7 @@ function XC.GetMacroTooltipSpellSlot(macro)
         if command.name == "cast" then
             for _, spell in ipairs(command.spells) do
                 for _, conditionGroup in ipairs(spell.conditionGroups) do
-                    if XC.TestConditions(conditionGroup.conditions, conditionGroup.target) then
+                    if TestConditions(conditionGroup.conditions, conditionGroup.target) then
                         return spell.spellSlot
                     end
                 end
@@ -334,7 +327,7 @@ function XC.GetMacroTooltipSpellSlot(macro)
         end
         if command.name == "castsequence" then
             for _, conditionGroup in ipairs(command.sequence.conditionGroups) do
-                if XC.TestConditions(conditionGroup.conditions, conditionGroup.target) then
+                if TestConditions(conditionGroup.conditions, conditionGroup.target) then
                     if command.sequence.index > 1 then
                         local reset = false
                         reset = command.sequence.reset.shift and IsShiftKeyDown() 
@@ -350,48 +343,47 @@ function XC.GetMacroTooltipSpellSlot(macro)
     end
 end
 
-function XC.GetMacro(name)
-    -- name = string.lower(name)
-    local macro = XC.macros[name]
+local function GetMacro(name)
+    local macro = macros[name]
     if macro then return macro end
-    XC.macros[name] = XC.ParseMacro(name)
-    return XC.macros[name]
+    macros[name] = ParseMacro(name)
+    return macros[name]
 end
 
-function XC.GetAction(slot)
-    local action = XC.actions[slot]
+local function GetAction(slot)
+    local action = actions[slot]
     if action then return action end
 
     local text = GetActionText(slot)
     
     if text then
-        local macro = XC.GetMacro(text)
+        local macro = GetMacro(text)
         if macro then
             action = {
                 text = text,
                 macro = macro,
-                spellSlot = XC.GetMacroTooltipSpellSlot(macro)
+                spellSlot = GetMacroTooltipSpellSlot(macro)
             }
 
             if action.spellSlot then
-                action.cost = XC.GetSpellInfo(action.spellSlot)
+                action.cost = GetSpellInfo(action.spellSlot)
                 action.usable = (not action.cost) or (UnitMana("player") >= action.cost)
             end
             
-            XC.actions[slot] = action 
+            actions[slot] = action 
             return action
         end
     end
 end
 
-XC.ActionButtonPrefixes = {
+local ACTION_BUTTON_PREFIXES = {
     "ActionButton", "MultiBarLeftButton", "MultiBarRightButton", 
     "MultiBarBottomLeftButton", "MultiBarBottomRightButton", "BonusActionButton"
 }
 
-function XC.BroadcastEventForAction(slot, event, ...)
+local function BroadcastEventForAction(slot, event, ...)
     local _this = this
-    for _, name in ipairs(XC.ActionButtonPrefixes) do 
+    for _, name in ipairs(ACTION_BUTTON_PREFIXES) do 
         for i = 1, 12 do
             local actionButton = getglobal(name .. i)
             if actionButton ~= nil then
@@ -410,48 +402,54 @@ end
 -- Overrides                                                                   -
 --------------------------------------------------------------------------------
 
-XC._.SendChatMessage = SendChatMessage
+local base = {}
+
+base.SendChatMessage = SendChatMessage
 function SendChatMessage(msg, ...)
-    if XC.currentAction and string.find(msg, "^%s*#showtooltip") then
+    if currentAction and string.find(msg, "^%s*#showtooltip") then
         return
     end
-    XC._.SendChatMessage(msg, unpack(arg))
+    base.SendChatMessage(msg, unpack(arg))
 end
 
-XC._.UseAction = UseAction
+base.UseAction = UseAction
 function UseAction(slot, checkCursor, onSelf)
-    XC.currentAction = XC.GetAction(slot)
-    XC._.UseAction(slot, checkCursor, onSelf)
-    XC.currentAction = nil
+    currentAction = GetAction(slot)
+    base.UseAction(slot, checkCursor, onSelf)
+    currentAction = nil
 end
 
-XC._.GameTooltip = {}
+base.GameTooltip = {}
 
-XC._.GameTooltip.SetAction = GameTooltip.SetAction
+base.GameTooltip.SetAction = GameTooltip.SetAction
 function GameTooltip.SetAction(self, slot)
-    local action = XC.GetAction(slot)
+    local action = GetAction(slot)
     if action then
         if action.spellSlot then
             GameTooltip:SetSpell(action.spellSlot, "spell")
+            local _, rank = GetSpellName(action.spellSlot, "spell")
+            GameTooltipTextRight1:SetText("|cff808080" .. rank .."|r");
+            GameTooltipTextRight1:Show();
+            GameTooltip:Show()
         end
     else
-        XC._.GameTooltip.SetAction(self, slot)
+        base.GameTooltip.SetAction(self, slot)
     end
 end
 
-XC._.IsActionInRange = IsActionInRange
+base.IsActionInRange = IsActionInRange
 function IsActionInRange(slot, unit)
-    local action = XC.GetAction(slot)
+    local action = GetAction(slot)
     if action and action.macro and action.macro.tooltips then
         return action.spellSlot and true 
     else
-        return XC._.IsActionInRange(slot, unit)
+        return base.IsActionInRange(slot, unit)
     end
 end
 
-XC._.IsUsableAction = IsUsableAction
+base.IsUsableAction = IsUsableAction
 function IsUsableAction(slot, unit)
-    local action = XC.GetAction(slot)
+    local action = GetAction(slot)
     if action and action.macro and action.macro.tooltips then 
         if action.usable then
             return true, false
@@ -459,26 +457,26 @@ function IsUsableAction(slot, unit)
             return false, true
         end
     else
-        return XC._.IsUsableAction(slot, unit)
+        return base.IsUsableAction(slot, unit)
     end
 end
 
-XC._.GetActionTexture = GetActionTexture
+base.GetActionTexture = GetActionTexture
 function GetActionTexture(slot)
-    local action = XC.GetAction(slot)
+    local action = GetAction(slot)
     if action and action.macro then
         if not action.macro.tooltips then return action.macro.iconTexture end
-        local spellSlot = XC.GetMacroTooltipSpellSlot(action.macro)
+        local spellSlot = GetMacroTooltipSpellSlot(action.macro)
         if spellSlot then return GetSpellTexture(spellSlot, "spell") end
         return "Interface\\Icons\\INV_Misc_QuestionMark"
     else
-        return XC._.GetActionTexture(slot)
+        return base.GetActionTexture(slot)
     end
 end
 
-XC._.GetActionCooldown = GetActionCooldown
+base.GetActionCooldown = GetActionCooldown
 function GetActionCooldown(slot)
-    local action = XC.GetAction(slot)
+    local action = GetAction(slot)
     if action and action.macro then
         if action.spellSlot then
             return GetSpellCooldown(action.spellSlot, "spell")
@@ -486,7 +484,7 @@ function GetActionCooldown(slot)
             return 0, 0, 0
         end
     else
-        return XC._.GetActionCooldown(slot)
+        return base.GetActionCooldown(slot)
     end
 end
 
@@ -494,10 +492,10 @@ end
 -- UI                                                                          -
 --------------------------------------------------------------------------------
 
-function XC.OnUpdate(self)
+local function OnUpdate(self)
     local time = GetTime()
 
-    local sequence = XC.currentSequence
+    local sequence = currentSequence
     
     if sequence and sequence.status >= 2 and 
             (time - sequence.lastUpdate) >= 0.2 then
@@ -508,110 +506,100 @@ function XC.OnUpdate(self)
                 sequence.index = sequence.index + 1
             end
         end
-        XC.currentSequence = nil
+        currentSequence = nil
     end
     
     -- Slow down a bit.
-    if (time - XC.lastUpdate) < 0.1 then return end
-    XC.lastUpdate = time
+    if (time - lastUpdate) < 0.1 then return end
+    lastUpdate = time
 
-    for cmd, sequence in pairs(XC.castSequenceCache) do
-        if XC.currentSequence ~= sequence and sequence.index > 1 then
+    for cmd, sequence in pairs(castSequenceCache) do
+        if currentSequence ~= sequence and sequence.index > 1 then
             if sequence.reset.secs and (time - sequence.lastUpdate) >= sequence.reset.secs then
                 sequence.index = 1
             end
         end
     end
     
-    for slot, action in pairs(XC.actions) do
-        local spellSlot = XC.GetMacroTooltipSpellSlot(action.macro)
+    for slot, action in pairs(actions) do
+        local spellSlot = GetMacroTooltipSpellSlot(action.macro)
         
         if action.spellSlot ~= spellSlot then
             action.spellSlot = spellSlot
-            action.cost = spellSlot and XC.GetSpellInfo(spellSlot) or nil
+            action.cost = spellSlot and GetSpellInfo(spellSlot) or nil
             action.usable = (not action.cost) or (UnitMana("player") >= action.cost)
-            XC.BroadcastEventForAction(slot, "ACTIONBAR_SLOT_CHANGED", slot)
+            BroadcastEventForAction(slot, "ACTIONBAR_SLOT_CHANGED", slot)
         else
             local usable = (not action.cost) or (UnitMana("player") >= action.cost)
             if usable ~= action.usable then
                 action.usable = usable
-                XC.BroadcastEventForAction(slot, "ACTIONBAR_UPDATE_USABLE")
+                BroadcastEventForAction(slot, "ACTIONBAR_UPDATE_USABLE")
             end
         end
     end
 end
- 
-function XC.LogEvent()
-    local s = "event = " .. event
-    for i = 1, 16 do
-        local arg = getglobal("arg" .. i)
-        if arg ~= nil then s = s .. ", arg" .. i .. " = " .. arg end
-    end
-    XC.Log(s)
-end
- 
-function XC.OnEvent()
+
+local function OnEvent()
     if event == "UPDATE_MACROS" then
-        XC.currentSequence = nil
-        XC.macros = {}
-        XC.action = {}
-        XC.castSequenceCache = {}
+        currentSequence = nil
+        macros = {}
+        action = {}
+        castSequenceCache = {}
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
-        XC.actions[arg1] = nil
-        XC.BroadcastEventForAction(arg1, "ACTIONBAR_SLOT_CHANGED", arg1)
+        actions[arg1] = nil
+        BroadcastEventForAction(arg1, "ACTIONBAR_SLOT_CHANGED", arg1)
     elseif event == "PLAYER_LEAVE_COMBAT" then
-        for cmd, sequence in pairs(XC.castSequenceCache) do
-            if XC.currentSequence ~= sequence and sequence.index > 1 and sequence.reset.combat then
+        for cmd, sequence in pairs(castSequenceCache) do
+            if currentSequence ~= sequence and sequence.index > 1 and sequence.reset.combat then
                 sequence.index = 1
             end
         end
     elseif event == "PLAYER_TARGET_CHANGED" then
-        for cmd, sequence in pairs(XC.castSequenceCache) do
-            if XC.currentSequence ~= sequence and sequence.index > 1 and sequence.reset.target then
+        for cmd, sequence in pairs(castSequenceCache) do
+            if currentSequence ~= sequence and sequence.index > 1 and sequence.reset.target then
                 sequence.index = 1
             end
         end
-    elseif XC.currentSequence then
+    elseif currentSequence then
         if event == "SPELLCAST_START" then
-            XC.currentSequence.status = 1
+            currentSequence.status = 1
         elseif event == "SPELLCAST_STOP" then
-            XC.currentSequence.status = 2
-            XC.currentSequence.lastUpdate = GetTime()
+            currentSequence.status = 2
+            currentSequence.lastUpdate = GetTime()
         elseif event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
-            XC.currentSequence.status = 3
+            currentSequence.status = 3
         end
     end
 end
 
-XC.frame = CreateFrame("Frame", nil, UIParent)
-XC.frame:SetScript("OnUpdate", XC.OnUpdate)
-XC.frame:SetScript("OnEvent", XC.OnEvent)
+frame = CreateFrame("GameTooltip")
+frame:SetScript("OnUpdate", OnUpdate)
+frame:SetScript("OnEvent", OnEvent)
 
-XC.frame:RegisterEvent("UPDATE_MACROS")
-XC.frame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
-XC.frame:RegisterEvent("SPELLCAST_START")
-XC.frame:RegisterEvent("SPELLCAST_STOP")
-XC.frame:RegisterEvent("SPELLCAST_FAILED")
-XC.frame:RegisterEvent("SPELLCAST_INTERRUPTED")
-XC.frame:RegisterEvent("PLAYER_LEAVE_COMBAT")
-XC.frame:RegisterEvent("PLAYER_TARGET_CHANGED")
+frame.costFontString = frame:CreateFontString()
+frame.rangeFontString = frame:CreateFontString()
+frame:AddFontStrings(frame:CreateFontString(), frame:CreateFontString())
+frame:AddFontStrings(frame.costFontString, frame.rangeFontString)
 
-XC.tip = CreateFrame("GameTooltip")
-XC.tip.costFontString = XC.tip:CreateFontString()
-XC.tip.rangeFontString = XC.tip:CreateFontString()
-XC.tip:AddFontStrings(XC.tip:CreateFontString(), XC.tip:CreateFontString())
-XC.tip:AddFontStrings(XC.tip.costFontString, XC.tip.rangeFontString)
+frame:RegisterEvent("UPDATE_MACROS")
+frame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+frame:RegisterEvent("SPELLCAST_START")
+frame:RegisterEvent("SPELLCAST_STOP")
+frame:RegisterEvent("SPELLCAST_FAILED")
+frame:RegisterEvent("SPELLCAST_INTERRUPTED")
+frame:RegisterEvent("PLAYER_LEAVE_COMBAT")
+frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 
 --------------------------------------------------------------------------------
 -- Slash Commands                                                              -
 --------------------------------------------------------------------------------
 
 SlashCmdList["CAST"] = function(msg)
-    local spells = XC.ParseArguments_Cast(msg)
+    local spells = ParseArguments_Cast(msg)
     
     for _, spell in ipairs(spells) do
         for _, conditionGroup in ipairs(spell.conditionGroups) do
-            local result, target = XC.TestConditions(conditionGroup.conditions, conditionGroup.target)
+            local result, target = TestConditions(conditionGroup.conditions, conditionGroup.target)
             if result then
                 if target ~= "target" then TargetUnit(target) end
                 CastSpell(spell.spellSlot, "spell")
@@ -623,12 +611,12 @@ SlashCmdList["CAST"] = function(msg)
 end
 
 SlashCmdList["CASTSEQUENCE"] = function(msg)
-    local sequence = XC.ParseArguments_CastSequence(msg)
+    local sequence = ParseArguments_CastSequence(msg)
 
-    if XC.currentSequence then return end
+    if currentSequence then return end
     
     for _, conditionGroup in ipairs(sequence.conditionGroups) do
-        local result, target = XC.TestConditions(conditionGroup.conditions, conditionGroup.target)
+        local result, target = TestConditions(conditionGroup.conditions, conditionGroup.target)
         if result then
             if sequence.index > 1 then
                 local reset = false
@@ -641,7 +629,7 @@ SlashCmdList["CASTSEQUENCE"] = function(msg)
             local spellSlot = sequence.spells[sequence.index]
             
             if spellSlot then
-                XC.currentSequence = sequence
+                currentSequence = sequence
                 sequence.status = 0
                 sequence.lastUpdate = GetTime()
             
@@ -656,35 +644,35 @@ SlashCmdList["CASTSEQUENCE"] = function(msg)
 end
 
 SlashCmdList["CANCELFORM"] = function(msg)
-    local args = XC.ParseArguments(msg)
+    local args = ParseArguments(msg)
     if args[1] then
         for _, conditionGroup in ipairs(args[1].conditionGroups) do
-            local result = XC.TestConditions(conditionGroup.conditions, conditionGroup.target)
+            local result = TestConditions(conditionGroup.conditions, conditionGroup.target)
             if result then 
-                XC.CancelShapeshiftForm()
+                CancelShapeshiftForm()
                 return
             end
         end
         return
     end
     
-    XC.CancelShapeshiftForm()
+    CancelShapeshiftForm()
 end
 
-XC._.SlashCmdList = {}
+base.SlashCmdList = {}
 
-XC._.SlashCmdList.TARGET = SlashCmdList["TARGET"]
+base.SlashCmdList.TARGET = SlashCmdList["TARGET"]
 
 SlashCmdList["TARGET"] = function(msg)
-    local args = XC.ParseArguments(msg)
+    local args = ParseArguments(msg)
     if args[1] then
         for _, conditionGroup in ipairs(args[1].conditionGroups) do
-            local result, target = XC.TestConditions(conditionGroup.conditions, conditionGroup.target)
+            local result, target = TestConditions(conditionGroup.conditions, conditionGroup.target)
             if result then
                 if target ~= "target" then
                     TargetUnit(target)
                 else
-                    XC._.SlashCmdList.TARGET(args[1].text)
+                    base.SlashCmdList.TARGET(args[1].text)
                 end
                 return
             end
@@ -705,7 +693,5 @@ end
 
 SLASH_CANCELFORM1 = "/cancelform"
 SLASH_CASTSEQUENCE1 = "/castsequence"
-
-LL = XC.Log
-
-XC.Log("eXtended Commands Loaded")
+     
+DEFAULT_CHAT_FRAME:AddMessage("|cFF00CCCCCleverMacros (|r" .. VERSION .. "|cFF00CCCC) loaded|r")
