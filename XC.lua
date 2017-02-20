@@ -46,19 +46,6 @@ function XC.Split(s, p)
     until false
 end
 
-function XC.Explode(s, p)
-    local r, o = {}, 1
-    repeat
-        local b, e = string.find(s, p, o)
-        if b == nil then
-            table.insert(r, XC.Trim(string.sub(s, o)))
-            return r
-        end
-        table.insert(r, XC.Trim(string.sub(s, o, e - 1)))
-        o = e + 1
-    until false
-end
-
 function XC.GetSpellInfo(spellSlot)
     XC.tip:SetOwner(WorldFrame, "ANCHOR_NONE")
     XC.tip:SetSpell(spellSlot, "spell") 
@@ -101,10 +88,6 @@ end
 function XC.CancelShapeshiftForm(index)
     local index = XC.GetCurrentShapeshiftForm(index)
     if index ~= nil then CastShapeshiftForm(index) end
-end
-
-function XC.ShouldSequenceReset(reset)
-    
 end
 
 function XC.TestConditions(conditions, target)
@@ -258,8 +241,16 @@ function XC.ParseArguments_CastSequence(s)
     s = e and string.sub(args[1].text, e + 1) or args[1].text
 
     if reset then
-        
-    
+        for _, rule in ipairs(XC.Split(reset, "/")) do
+            local secs = tonumber(rule)
+            if secs and secs > 0 then
+                if not sequence.reset.secs or secs < sequence.reset.secs then
+                    sequence.reset.secs = secs
+                end
+            else
+                sequence.reset[rule] = true
+            end
+        end
     end
     
     for _, name in ipairs(XC.Split(s, ",")) do
@@ -344,7 +335,15 @@ function XC.GetMacroTooltipSpellSlot(macro)
         if command.name == "castsequence" then
             for _, conditionGroup in ipairs(command.sequence.conditionGroups) do
                 if XC.TestConditions(conditionGroup.conditions, conditionGroup.target) then
-                    return command.sequence.spells[command.sequence.index]
+                    if command.sequence.index > 1 then
+                        local reset = false
+                        reset = command.sequence.reset.shift and IsShiftKeyDown() 
+                        reset = reset or (command.sequence.reset.alt and IsAltKeyDown())
+                        reset = reset or (command.sequence.reset.ctrl and IsControlKeyDown())
+                        return command.sequence.spells[reset and 1 or command.sequence.index]
+                    else
+                        return command.sequence.spells[command.sequence.index]
+                    end
                 end
             end
         end
@@ -515,6 +514,14 @@ function XC.OnUpdate(self)
     if (time - XC.lastUpdate) < 0.1 then return end
     XC.lastUpdate = time
 
+    for cmd, sequence in pairs(XC.castSequenceCache) do
+        if XC.currentSequence ~= sequence and sequence.index > 1 then
+            if sequence.reset.secs and (time - sequence.lastUpdate) >= sequence.reset.secs then
+                sequence.index = 1
+            end
+        end
+    end
+    
     for slot, action in pairs(XC.actions) do
         local spellSlot = XC.GetMacroTooltipSpellSlot(action.macro)
         
@@ -551,6 +558,18 @@ function XC.OnEvent()
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
         XC.actions[arg1] = nil
         XC.BroadcastEventForAction(arg1, "ACTIONBAR_SLOT_CHANGED", arg1)
+    elseif event == "PLAYER_LEAVE_COMBAT" then
+        for cmd, sequence in pairs(XC.castSequenceCache) do
+            if XC.currentSequence ~= sequence and sequence.index > 1 and sequence.reset.combat then
+                sequence.index = 1
+            end
+        end
+    elseif event == "PLAYER_TARGET_CHANGED" then
+        for cmd, sequence in pairs(XC.castSequenceCache) do
+            if XC.currentSequence ~= sequence and sequence.index > 1 and sequence.reset.target then
+                sequence.index = 1
+            end
+        end
     elseif XC.currentSequence then
         if event == "SPELLCAST_START" then
             XC.currentSequence.status = 1
@@ -573,6 +592,8 @@ XC.frame:RegisterEvent("SPELLCAST_START")
 XC.frame:RegisterEvent("SPELLCAST_STOP")
 XC.frame:RegisterEvent("SPELLCAST_FAILED")
 XC.frame:RegisterEvent("SPELLCAST_INTERRUPTED")
+XC.frame:RegisterEvent("PLAYER_LEAVE_COMBAT")
+XC.frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 
 XC.tip = CreateFrame("GameTooltip")
 XC.tip.costFontString = XC.tip:CreateFontString()
@@ -608,7 +629,16 @@ SlashCmdList["CASTSEQUENCE"] = function(msg)
     for _, conditionGroup in ipairs(sequence.conditionGroups) do
         local result, target = XC.TestConditions(conditionGroup.conditions, conditionGroup.target)
         if result then
+            if sequence.index > 1 then
+                local reset = false
+                reset = sequence.reset.shift and IsShiftKeyDown() 
+                reset = reset or (sequence.reset.alt and IsAltKeyDown())
+                reset = reset or (sequence.reset.ctrl and IsControlKeyDown())
+                if reset then sequence.index = 1 end
+            end
+
             local spellSlot = sequence.spells[sequence.index]
+            
             if spellSlot then
                 XC.currentSequence = sequence
                 sequence.status = 0
