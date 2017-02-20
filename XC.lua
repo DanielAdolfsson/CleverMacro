@@ -12,11 +12,9 @@ XC.actions = {}
 XC.lastUpdate = 0
 XC.currentAction = nil
 XC.currentSequence = nil
+XC.mouseOverUnit = nil
 XC.macros = {}
 XC.castSequenceCache = {}
-
-
--- macro { {  tooltip = xx, commands = {}    },{} }
 
 XC._ = {}
 
@@ -47,7 +45,6 @@ function XC.Split(s, p)
         o = e + 1
     until false
 end
-
 
 function XC.Explode(s, p)
     local r, o = {}, 1
@@ -93,29 +90,6 @@ function XC.GetSpellSlotByName(name)
     return index;
 end
 
-function XC.GetSpellId(name)
-    name = string.lower(name)
-    
-    local index = XC.spellCache[name]
-    if index ~= nil and index < 0 then
-        return nil
-    end
-
-    for tabIndex = 1, GetNumSpellTabs() do
-        local _, _, offset, count = GetSpellTabInfo(tabIndex)
-        for index = offset + 1, offset + count do
-            local spell, rank = GetSpellName(index, "spell")
-            spell = string.lower(spell) rank = string.lower(rank)
-            XC.spellCache[spell] = index
-            XC.spellCache[spell .. "(" .. rank .. ")"] = index
-        end
-    end
-
-    local index = XC.spellCache[name]
-    if index == nil then XC.spellCache[name] = -1 end
-    return index;
-end
-
 function XC.GetCurrentShapeshiftForm()
     for index = 1, GetNumShapeshiftForms() do 
         local _, _, active = GetShapeshiftFormInfo(index)
@@ -129,8 +103,19 @@ function XC.CancelShapeshiftForm(index)
     if index ~= nil then CastShapeshiftForm(index) end
 end
 
+function XC.ShouldSequenceReset(reset)
+    
+end
+
 function XC.TestConditions(conditions, target)
     local result = true
+
+    if target == "mouseover" then
+        local focus = GetMouseFocus()
+        if focus and focus.unit then
+            target = focus.unit
+        end
+    end
     
     for k, v in pairs(conditions) do
         local _, no = string.find(k, "^no")
@@ -181,7 +166,7 @@ function XC.TestConditions(conditions, target)
         if not result then return false end
     end
     
-    return true
+    return true, target
 end
 
 function XC.ParseArguments(s)
@@ -262,8 +247,8 @@ function XC.ParseArguments_CastSequence(s)
         conditionGroups = {},
         spells = {},
         index = 1,
-        status = 0,
-        lastUpdate = 0
+        reset = {},
+        status = 0
     }
     XC.castSequenceCache[s] = sequence
     
@@ -271,10 +256,15 @@ function XC.ParseArguments_CastSequence(s)
     
     local _, e, reset = string.find(args[1].text, "^%s*reset=([%w/]+)%s*")
     s = e and string.sub(args[1].text, e + 1) or args[1].text
+
+    if reset then
+        
+    
+    end
     
     for _, name in ipairs(XC.Split(s, ",")) do
-        local spellSlot = XC.GetSpellId(XC.Trim(name))
-        table.insert(sequence.spells, XC.GetSpellId(XC.Trim(name)))
+        local spellSlot = XC.GetSpellSlotByName(XC.Trim(name))
+        table.insert(sequence.spells, XC.GetSpellSlotByName(XC.Trim(name)))
     end
     
     return sequence
@@ -301,7 +291,7 @@ function XC.ParseMacro(name)
                 for _, arg in ipairs(XC.ParseArguments(s)) do
                     local tooltip = {
                         conditionGroups = arg.conditionGroups,
-                        spellSlot = XC.GetSpellId(XC.Trim(arg.text))
+                        spellSlot = XC.GetSpellSlotByName(XC.Trim(arg.text))
                     }
                     table.insert(macro.tooltips, tooltip)
                 end
@@ -500,24 +490,6 @@ function GetActionCooldown(slot)
     end
 end
 
-XC._.GameTooltip.SetOwner = GameTooltip.SetOwner
-function GameTooltip.SetOwner(self, a, b, c, d)
-    currentMacroName = nil
-    XC._.GameTooltip.SetOwner(self, a, b, c, d)
-end
-
-XC._.UnitFrame_OnEnter = UnitFrame_OnEnter
-function UnitFrame_OnEnter()
-    currentUnit = this.unit
-    XC._.UnitFrame_OnEnter(this)
-end
-
-XC._.UnitFrame_OnLeave = UnitFrame_OnLeave
-function UnitFrame_OnLeave()
-    currentUnit = nil
-    XC._.UnitFrame_OnLeave(this)
-end    
-
 --------------------------------------------------------------------------------
 -- UI                                                                          -
 --------------------------------------------------------------------------------
@@ -572,7 +544,10 @@ end
  
 function XC.OnEvent()
     if event == "UPDATE_MACROS" then
-        -- Dep 
+        XC.currentSequence = nil
+        XC.macros = {}
+        XC.action = {}
+        XC.castSequenceCache = {}
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
         XC.actions[arg1] = nil
         XC.BroadcastEventForAction(arg1, "ACTIONBAR_SLOT_CHANGED", arg1)
@@ -614,11 +589,11 @@ SlashCmdList["CAST"] = function(msg)
     
     for _, spell in ipairs(spells) do
         for _, conditionGroup in ipairs(spell.conditionGroups) do
-            local result = XC.TestConditions(conditionGroup.conditions, conditionGroup.target)
+            local result, target = XC.TestConditions(conditionGroup.conditions, conditionGroup.target)
             if result then
-                if conditionGroup.target ~= "target" then TargetUnit(conditionGroup.target) end
+                if target ~= "target" then TargetUnit(target) end
                 CastSpell(spell.spellSlot, "spell")
-                if conditionGroup.target ~= "target" then TargetLastTarget() end
+                if target ~= "target" then TargetLastTarget() end
                 return
             end
         end
@@ -631,7 +606,7 @@ SlashCmdList["CASTSEQUENCE"] = function(msg)
     if XC.currentSequence then return end
     
     for _, conditionGroup in ipairs(sequence.conditionGroups) do
-        local result = XC.TestConditions(conditionGroup.conditions, conditionGroup.target)
+        local result, target = XC.TestConditions(conditionGroup.conditions, conditionGroup.target)
         if result then
             local spellSlot = sequence.spells[sequence.index]
             if spellSlot then
@@ -639,9 +614,9 @@ SlashCmdList["CASTSEQUENCE"] = function(msg)
                 sequence.status = 0
                 sequence.lastUpdate = GetTime()
             
-                if conditionGroup.target ~= "target" then TargetUnit(conditionGroup.target) end
+                if targettarget ~= "target" then TargetUnit(target) end
                 CastSpell(spellSlot, "spell")
-                if conditionGroup.target ~= "target" then TargetLastTarget() end
+                if targettarget ~= "target" then TargetLastTarget() end
             end
             return
         end
@@ -663,6 +638,27 @@ SlashCmdList["CANCELFORM"] = function(msg)
     end
     
     XC.CancelShapeshiftForm()
+end
+
+XC._.SlashCmdList = {}
+
+XC._.SlashCmdList.TARGET = SlashCmdList["TARGET"]
+
+SlashCmdList["TARGET"] = function(msg)
+    local args = XC.ParseArguments(msg)
+    if args[1] then
+        for _, conditionGroup in ipairs(args[1].conditionGroups) do
+            local result, target = XC.TestConditions(conditionGroup.conditions, conditionGroup.target)
+            if result then
+                if target ~= "target" then
+                    TargetUnit(target)
+                else
+                    XC._.SlashCmdList.TARGET(args[1].text)
+                end
+                return
+            end
+        end
+    end
 end
 
 -- Not implemented yet. 
