@@ -83,14 +83,50 @@ local function CancelShapeshiftForm(index)
     if index ~= nil then CastShapeshiftForm(index) end
 end
 
+local UNITS = {
+    "(mouseover)", "(player)", "(pet)", "(party)(%d)", "(partypet)(%d)",
+    "(partypet)(%d)", "(raid)(%d+)", "(raidpet)(%d+)", "(target)" 
+}
+
+local function IsUnitValid(unit)
+    local offset = 1
+    repeat
+        local b, e, name, n
+        for _, p in ipairs(UNITS) do
+            b, e, name, n = string.find(unit, "^" .. p, offset)
+           if e then break end
+        end
+        if not e then return false end
+        if offset > 1 and name ~= "target" then return false end
+        if n and tonumber(n) == 0 then return false end
+
+        if (name == "raid" or name == "raidpet") and tonumber(n) > 40 then
+            return false
+        end
+
+        if (name == "partypet" or name == "party") and tonumber(n) > 4 then
+            return false
+        end
+        
+        offset = e + 1
+    until offset > string.len(unit)
+    return offset > 1
+end
+
 local function TestConditions(conditions, target)
     local result = true
 
-    if target == "mouseover" then
+    if target == "mouseover" or target == "mo" then
         local focus = GetMouseFocus()
         if focus and focus.unit then
             target = focus.unit
+        elseif target == "mo" then
+            target = "mouseover"
         end
+    end
+
+    if not IsUnitValid(target) then
+        target = "target"
     end
     
     for k, v in pairs(conditions) do
@@ -99,12 +135,12 @@ local function TestConditions(conditions, target)
         
         if mod == "help" then 
             result = UnitCanAssist("player", target) 
+        elseif mod == "exists" then
+            result = UnitExists(target)
         elseif mod == "harm" then
             result = UnitCanAttack("player", target)
         elseif mod == "dead" then
-            result = UnitIsDead(target)
-        elseif mod == "exists" then
-            result = UnitExists(target)
+            result = UnitIsDead(target) or UnitIsGhost()
         elseif mod == "mod" or mod == "modifier" then
             if v == "" then
                 result = IsAltKeyDown() or IsControlKeyDown() or IsShiftKeyDown()
@@ -133,6 +169,18 @@ local function TestConditions(conditions, target)
             else
                 result = currentForm ~= nil
             end
+
+        -- Conditions that are NOT a part of the official implementation.
+            
+        elseif mod == "shift" then
+             result = IsShiftKeyDown()
+        elseif mod == "alt" then
+            result = IsAltKeyDown()
+        elseif mod == "ctrl" then
+            result = IsControlKeyDown()
+        elseif mod == "alive" then
+             result = not (UnitIsDead(target) or UnitIsGhost())
+             
         else
             return false
         end
@@ -693,5 +741,7 @@ end
 
 SLASH_CANCELFORM1 = "/cancelform"
 SLASH_CASTSEQUENCE1 = "/castsequence"
+
+LL = Log
      
 DEFAULT_CHAT_FRAME:AddMessage("|cFF00CCCCCleverMacro (|r" .. VERSION .. "|cFF00CCCC) loaded|r")
