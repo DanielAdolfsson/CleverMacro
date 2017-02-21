@@ -424,25 +424,53 @@ local function GetAction(slot)
     end
 end
 
-local ACTION_BUTTON_PREFIXES = {
-    "ActionButton", "MultiBarLeftButton", "MultiBarRightButton", 
-    "MultiBarBottomLeftButton", "MultiBarBottomRightButton", "BonusActionButton"
-}
-
-local function BroadcastEventForAction(slot, event, ...)
+local function SendEventForAction(slot, event, ...)
     local _this = this
-    for _, name in ipairs(ACTION_BUTTON_PREFIXES) do 
-        for i = 1, 12 do
-            local actionButton = getglobal(name .. i)
-            if actionButton ~= nil then
-                if ActionButton_GetPagedID(actionButton) == slot then
-                    arg1, arg2, arg3, arg4, arg5, arg6, arg7 = unpack(arg)
-                    this = actionButton
-                    ActionButton_OnEvent(event)
-                end
-            end
+
+    arg1, arg2, arg3, arg4, arg5, arg6, arg7 = unpack(arg)
+
+    local page = floor((slot - 1) / NUM_ACTIONBAR_BUTTONS) + 1
+    local pageSlot = slot - (page - 1) * NUM_ACTIONBAR_BUTTONS
+    
+    -- Classic support.
+    
+    if slot >= 73 then
+        this = getglobal("BonusActionButton" .. pageSlot)
+        if this then ActionButton_OnEvent(event) end
+    else
+        if slot >= 61 then
+            this = getglobal("MultiBarBottomLeftButton" .. pageSlot)
+        elseif slot >= 49 then
+            this = getglobal("MultiBarBottomRightButton" .. pageSlot)
+        elseif slot >= 37 then
+            this = getglobal("MultiBarRightButton" .. pageSlot)
+        elseif slot >= 25 then
+            this = getglobal("MultiBarLeftButton" .. pageSlot)
+        else
+            this = nil
+        end
+
+        if this then ActionButton_OnEvent(event) end
+        
+        if page == CURRENT_ACTIONBAR_PAGE then
+            this = getglobal("ActionButton" .. pageSlot)
+            if this then ActionButton_OnEvent(event) end
         end
     end
+    
+    -- Bongos support.
+    if BActionBar then
+        for i = 1, 100 do
+            local bar = getglobal("BActionBar" .. i)
+            if not bar then break end
+            local pageOffset = BActionBar.GetPage(bar:GetID());
+            if slot >= BActionBar.GetStart(bar:GetID()) and slot <= BActionBar.GetEnd(bar:GetID()) then
+                
+            end
+        end
+    
+    end
+    
     this = _this
 end
 
@@ -576,12 +604,12 @@ local function OnUpdate(self)
             action.spellSlot = spellSlot
             action.cost = spellSlot and GetSpellInfo(spellSlot) or nil
             action.usable = (not action.cost) or (UnitMana("player") >= action.cost)
-            BroadcastEventForAction(slot, "ACTIONBAR_SLOT_CHANGED", slot)
+            SendEventForAction(slot, "ACTIONBAR_SLOT_CHANGED", slot)
         else
             local usable = (not action.cost) or (UnitMana("player") >= action.cost)
             if usable ~= action.usable then
                 action.usable = usable
-                BroadcastEventForAction(slot, "ACTIONBAR_UPDATE_USABLE")
+                SendEventForAction(slot, "ACTIONBAR_UPDATE_USABLE")
             end
         end
     end
@@ -595,7 +623,7 @@ local function OnEvent()
         castSequenceCache = {}
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
         actions[arg1] = nil
-        BroadcastEventForAction(arg1, "ACTIONBAR_SLOT_CHANGED", arg1)
+        SendEventForAction(arg1, "ACTIONBAR_SLOT_CHANGED", arg1)
     elseif event == "PLAYER_LEAVE_COMBAT" then
         for cmd, sequence in pairs(castSequenceCache) do
             if currentSequence ~= sequence and sequence.index > 1 and sequence.reset.combat then
