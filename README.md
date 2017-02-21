@@ -2,7 +2,7 @@
 
 *CleverMacro* is an attempt to bring WoW 2.0 macros back to vanilla.
 
-##### Current features
+#### Current features
 
 * Conditionals and targets, like ```[mod:alt,@mouseover]```
 * ```/cast```, ```/castsequence```, and more
@@ -10,7 +10,7 @@
 * Support for mouseover on unit frames
 * Icons and tooltips are updated accordingly
 
-##### Implemented conditionals
+#### Implemented conditionals
 
 * mod, modifier, *shift*, *alt*, *ctrl*
 * dead, *alive*
@@ -20,13 +20,13 @@ All conditionals can be prefixed with "no" to negate the result.
 
 Conditionals in *italics* are implemented in *CleverMacro* only, and not valid in retail WoW.
 
-##### Implemented or adapted commands
+#### Implemented or adapted commands
 
 * /cast, /castsequence
 * /cancelform
 * /target
 
-##### Other addons
+#### Other addons
 
 *CleverMacro* might not support ***mouseover*** targeting when used with unit frames other than the classic Blizzard ones. Additionally, the addon might not support updating tooltips and icons on custom actionbars.
 
@@ -36,7 +36,7 @@ Supported addons thus far:
 
 * [Luna Unit Frames](https://github.com/Aviana/LunaUnitFrames)
 
-##### Examples
+#### Examples
 
 ```
 #showtooltip
@@ -48,7 +48,7 @@ Supported addons thus far:
 /cast [mod:alt,noform] Rejuvenation; [mod:shift,noform] Healing Touch
 ```
 
-##### Suggestions
+#### Suggestions
 
 If you you're missing features or have an addon you need *CleverMacro* to support, don't hesitate to open an issue.
 
