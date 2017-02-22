@@ -608,7 +608,7 @@ local function OnEvent()
     if event == "UPDATE_MACROS" or event == "SPELLS_CHANGED" then
         currentSequence = nil
         macros = {}
-        action = {}
+        actions = {}
         castSequenceCache = {}
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
         actions[arg1] = nil
