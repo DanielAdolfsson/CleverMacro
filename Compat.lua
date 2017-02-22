@@ -1,6 +1,6 @@
 -- CleverMacro for Vanilla WoW
 
--- Support for Bongos
+-- Bongos
 CleverMacro.RegisterActionEventHandler(function(slot, event) 
     local MAX_BUTTONS = 120
 
@@ -26,4 +26,17 @@ CleverMacro.RegisterActionEventHandler(function(slot, event)
         end
     end
 end)
+
+-- XPerl
+CleverMacro.RegisterMouseOverResolver(function(frame)
+    if not frame:GetName() then return end
+    local _, _, name = string.find(frame:GetName(), "^XPerl_(.*)_CastClickOverlay")
+    if name then
+        if name == "Player" then return "player" 
+        elseif name == "Target" then return "target" end
+        return frame:GetParent().partyid
+    end
+end)
+
+-- xperl, pfui, bartender, CT, 
 

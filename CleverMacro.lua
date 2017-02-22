@@ -1,8 +1,8 @@
 --------------------------------------------------------------------------------
--- CleverMacro v1.2 alpha by _brain                                    -
+-- CleverMacro v1.3.1 by _brain                                    -
 --------------------------------------------------------------------------------
 
-local VERSION = "1.2 alpha"
+local VERSION = "1.3.1"
 
 local spellCache = {}
 local actions = {}    
@@ -11,8 +11,10 @@ local currentAction = nil
 local currentSequence = nil    
 local mouseOverUnit = nil    
 local macros = {}    
-local castSequenceCache = {}    
+local castSequenceCache = {}   
+ 
 local actionEventHandlers = {}
+local mouseOverResolvers = {}
 
 local frame
 
@@ -114,16 +116,23 @@ local function IsUnitValid(unit)
     return offset > 1
 end
 
+local function GetMouseOverUnit()
+    local frame = GetMouseFocus()
+    if not frame then return end
+
+    if frame.unit then return frame.unit end
+
+    for _, fn in ipairs(mouseOverResolvers) do
+        local unit = fn(frame)
+        if unit then return unit end
+    end
+end
+
 local function TestConditions(conditions, target)
     local result = true
 
     if target == "mouseover" or target == "mo" then
-        local focus = GetMouseFocus()
-        if focus and focus.unit then
-            target = focus.unit
-        elseif target == "mo" then
-            target = "mouseover"
-        end
+        target = GetMouseOverUnit() or "mouseover"
     end
 
     if not IsUnitValid(target) then
@@ -180,6 +189,8 @@ local function TestConditions(conditions, target)
     
     return true, target
 end
+
+
 
 local function ParseArguments(s)
     if Trim(s) == "" then return {} end
@@ -447,12 +458,12 @@ local function SendEventForAction(slot, event, ...)
             if this then ActionButton_OnEvent(event) end
         end
     end
+
+    this = _this
     
     for _, fn in ipairs(actionEventHandlers) do
-        if fn(slot, event, unpack(arg)) == true then break end
+        fn(slot, event, unpack(arg))
     end
-    
-    this = _this
 end
 
 --------------------------------------------------------------------------------
@@ -660,9 +671,14 @@ SlashCmdList["CAST"] = function(msg)
         for _, conditionGroup in ipairs(spell.conditionGroups) do
             local result, target = TestConditions(conditionGroup.conditions, conditionGroup.target)
             if result then
-                if target ~= "target" then TargetUnit(target) end
+                local retarget = not UnitIsUnit(target, "target")
+                if retarget then
+                    TargetUnit(target)
+                    if not UnitIsUnit(target, "target") then return end
+                end            
+            
                 CastSpell(spell.spellSlot, "spell")
-                if target ~= "target" then TargetLastTarget() end
+                if retarget then TargetLastTarget() end
                 return
             end
         end
@@ -691,10 +707,15 @@ SlashCmdList["CASTSEQUENCE"] = function(msg)
                 currentSequence = sequence
                 sequence.status = 0
                 sequence.lastUpdate = GetTime()
-            
-                if targettarget ~= "target" then TargetUnit(target) end
+
+                local retarget = not UnitIsUnit(target, "target")
+                if retarget then
+                    TargetUnit(target)
+                    if not UnitIsUnit(target, "target") then return end
+                end
+                
                 CastSpell(spellSlot, "spell")
-                if targettarget ~= "target" then TargetLastTarget() end
+                if retarget then TargetLastTarget() end
             end
             return
         end
@@ -763,6 +784,12 @@ CleverMacro.RegisterActionEventHandler = function(fn)
     end
 end
 
+CleverMacro.RegisterMouseOverResolver = function(fn)
+    if type(fn) == "function" then
+        table.insert(mouseOverResolvers, fn)
+    end
+end
+
 CleverMacro.Log = Log
      
-DEFAULT_CHAT_FRAME:AddMessage("|cFF00CCCCCleverMacro (|r" .. VERSION .. "|cFF00CCCC) loaded|r")
+DEFAULT_CHAT_FRAME:AddMessage("|cFF00CCCCCleverMacro |r" .. VERSION .. "|cFF00CCCC loaded|r")
