@@ -38,5 +38,12 @@ CleverMacro.RegisterMouseOverResolver(function(frame)
     end
 end)
 
--- xperl, pfui, bartender, CT, 
+-- pfUI
+CleverMacro.RegisterMouseOverResolver(function(frame)
+    if frame:GetName() and string.find(frame:GetName(), "^pf") and frame.label and frame.id then
+        return frame.label .. frame.id
+    end
+end)
+
+-- CT
 
