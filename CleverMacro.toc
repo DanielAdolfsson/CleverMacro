@@ -6,3 +6,4 @@
 ## RequiredDeps:
 ## SavedVariables:
 CleverMacro.lua
+Compat.lua

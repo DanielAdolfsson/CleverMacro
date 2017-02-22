@@ -12,6 +12,7 @@ local currentSequence = nil
 local mouseOverUnit = nil    
 local macros = {}    
 local castSequenceCache = {}    
+local actionEventHandlers = {}
 
 local frame
 
@@ -447,17 +448,8 @@ local function SendEventForAction(slot, event, ...)
         end
     end
     
-    -- Bongos support.
-    if BActionBar then
-        for i = 1, 100 do
-            local bar = getglobal("BActionBar" .. i)
-            if not bar then break end
-            local pageOffset = BActionBar.GetPage(bar:GetID());
-            if slot >= BActionBar.GetStart(bar:GetID()) and slot <= BActionBar.GetEnd(bar:GetID()) then
-                
-            end
-        end
-    
+    for _, fn in ipairs(actionEventHandlers) do
+        if fn(slot, event, unpack(arg)) == true then break end
     end
     
     this = _this
@@ -761,6 +753,16 @@ end
 SLASH_CANCELFORM1 = "/cancelform"
 SLASH_CASTSEQUENCE1 = "/castsequence"
 
-LL = Log
+-- Exports
+
+CleverMacro = {}
+
+CleverMacro.RegisterActionEventHandler = function(fn)
+    if type(fn) == "function" then
+        table.insert(actionEventHandlers, fn)
+    end
+end
+
+CleverMacro.Log = Log
      
 DEFAULT_CHAT_FRAME:AddMessage("|cFF00CCCCCleverMacro (|r" .. VERSION .. "|cFF00CCCC) loaded|r")
