@@ -15,6 +15,7 @@
 * mod, modifier, *shift*, *alt*, *ctrl*
 * dead, *alive*
 * form, stance
+* combat
 
 All conditionals can be prefixed with "no" to negate the result.
 
@@ -28,13 +29,19 @@ Conditionals in *italics* are implemented in *CleverMacro* only, and not valid i
 
 #### Other addons
 
-*CleverMacro* might not support ***mouseover*** targeting when used with unit frames other than the classic Blizzard ones. Additionally, the addon might not support updating tooltips and icons on custom actionbars.
+*CleverMacro* might or might not work well with other addons.
 
-The aim is for *CleverMacro* to support the more popular addons, so you don't have to use the classic interface in order to experience all of *CleverMacro*'s features.
+If the addon you want to use provides other unit frames, then it's possible mouseover targeting won't work correctly. Likewise, if the addon provides an alternative action bar, the icons and tooltips might not update correctly.
 
-Supported addons thus far:
+In either case, *CleverMacro* aims to support the more popular addons out of the box.
+
+The following addons is known to work:
 
 * [Luna Unit Frames](https://github.com/Aviana/LunaUnitFrames)
+* Bongos ActionBar
+* XPerl
+* pfUI
+* Bartender
 
 #### Examples
 
