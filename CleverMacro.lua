@@ -141,6 +141,8 @@ local function TestConditions(conditions, target)
             result = UnitCanAttack("player", target)
         elseif mod == "dead" then
             result = UnitIsDead(target) or UnitIsGhost()
+        elseif mod == "combat" then
+            result = UnitAffectingCombat("player")
         elseif mod == "mod" or mod == "modifier" then
             if v == true then
                 result = IsAltKeyDown() or IsControlKeyDown() or IsShiftKeyDown()
@@ -603,7 +605,7 @@ local function OnUpdate(self)
 end
 
 local function OnEvent()
-    if event == "UPDATE_MACROS" then
+    if event == "UPDATE_MACROS" or event == "SPELLS_CHANGED" then
         currentSequence = nil
         macros = {}
         action = {}
@@ -653,6 +655,7 @@ frame:RegisterEvent("SPELLCAST_FAILED")
 frame:RegisterEvent("SPELLCAST_INTERRUPTED")
 frame:RegisterEvent("PLAYER_LEAVE_COMBAT")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
+frame:RegisterEvent("SPELLS_CHANGED")
 
 --------------------------------------------------------------------------------
 -- Slash Commands                                                              -
