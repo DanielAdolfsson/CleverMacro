@@ -142,36 +142,21 @@ local function TestConditions(conditions, target)
         elseif mod == "dead" then
             result = UnitIsDead(target) or UnitIsGhost()
         elseif mod == "mod" or mod == "modifier" then
-            if v == "" then
+            if v == true then
                 result = IsAltKeyDown() or IsControlKeyDown() or IsShiftKeyDown()
             else
-                result = false
-                for _, mod in ipairs(Split(v, "/")) do
-                    if mod == "alt" then
-                        result = result or IsAltKeyDown()
-                    elseif mod == "ctrl" then
-                        result = result or IsControlKeyDown()
-                    elseif mod == "shift" then
-                        result = result or IsShiftKeyDown()
-                    end
-                end
+                result = IsAltKeyDown() and v.alt
+                result = result or IsControlKeyDown() and v.ctrl
+                result = result or IsShiftKeyDown() and v.shift
             end
         elseif mod == "form" or mod == "stance" then
-            local currentForm = GetCurrentShapeshiftForm()
-            if v ~= "" then
-                result = false
-                for _, form in ipairs(Split(v, "/")) do
-                    local index = tonumber(form)
-                    if index ~= nil then
-                        result = result or (currentForm == index)
-                    end
-                end
+            if v == true then
+                result = GetCurrentShapeshiftForm() ~= nil
             else
-                result = currentForm ~= nil
+                result = v[GetCurrentShapeshiftForm() or 0] 
             end
 
         -- Conditions that are NOT a part of the official implementation.
-            
         elseif mod == "shift" then
              result = IsShiftKeyDown()
         elseif mod == "alt" then
@@ -217,12 +202,22 @@ local function ParseArguments(s)
             table.insert(arg.conditionGroups, conditionGroup)
             
             for _, scond in ipairs(Split(sconds, ",")) do
-                local _, _, a, k, q, v = string.find(scond, "^%s*(@?)(%w+)(:?)([^%s]*)%s*$");        
+                local _, _, a, k, q, v = string.find(scond, "^%s*(@?)(%w+)(:?)([^%s]*)%s*$");      
                 if a then
                     if a == "@" and q == "" and v == "" then
                         conditionGroup.target = k
-                    elseif a == "" and ((q == "" and v == "") or q == ":") then
-                        conditionGroup.conditions[string.lower(k)] = string.lower(Trim(v))
+                    elseif a == "" then
+                        if q == ":" then
+                            local conds = {}
+                            for _, smod in ipairs(Split(v, "/")) do
+                                if smod ~= "" then 
+                                    conds[tonumber(smod) or string.lower(smod)] = true
+                                end
+                            end
+                            conditionGroup.conditions[string.lower(k)] = conds
+                        else
+                            conditionGroup.conditions[string.lower(k)] = true
+                        end
                     end
                 end
             end
@@ -246,14 +241,10 @@ local function ParseArguments(s)
 end
 
 local function ParseArguments_Cast(s)
-    local spells = {}
+    local spells = ParseArguments(s)
     
-    for _, arg in ipairs(ParseArguments(s)) do
-        local spell = {
-            conditionGroups = arg.conditionGroups,
-            spellSlot = GetSpellSlotByName(Trim(arg.text))
-        }
-        table.insert(spells, spell)
+    for _, spell in ipairs(spells) do
+        spell.spellSlot = GetSpellSlotByName(Trim(spell.text))
     end
 
     return spells
@@ -264,22 +255,18 @@ local function ParseArguments_CastSequence(s)
     local sequence = castSequenceCache[s]
     if sequence then return sequence end
 
-    local args = ParseArguments(s)
-    if not args[1] then return sequence end
+    sequence = ParseArguments(s)
+    if not sequence then return sequence end
 
-    sequence = {
-        conditionGroups = {},
-        spells = {},
-        index = 1,
-        reset = {},
-        status = 0
-    }
+    sequence.index = 1
+    sequence.reset = {}
+    sequence.spells = {}
+    sequence.status = 0
+    
     castSequenceCache[s] = sequence
     
-    sequence.conditionGroups = args[1].conditionGroups
-    
-    local _, e, reset = string.find(args[1].text, "^%s*reset=([%w/]+)%s*")
-    s = e and string.sub(args[1].text, e + 1) or args[1].text
+    local _, e, reset = string.find(sequence.text, "^%s*reset=([%w/]+)%s*")
+    s = e and string.sub(sequence.text, e + 1) or sequence.text
 
     if reset then
         for _, rule in ipairs(Split(reset, "/")) do
@@ -646,6 +633,7 @@ local function OnEvent()
             currentSequence.status = 3
         end
     end
+   
 end
 
 frame = CreateFrame("GameTooltip")
