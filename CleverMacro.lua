@@ -412,7 +412,7 @@ local function GetMacroTooltipSpellSlot(macro)
     
     if macro.tooltips then
         local tooltip = GetArg(macro.tooltips)
-        if tooltip then return tooltip.spellSlot end
+        if tooltip and tooltip.spellSlot then return tooltip.spellSlot end
     end
     
     for _, command in ipairs(macro.commands) do
