@@ -4,15 +4,18 @@
 
 local VERSION = "1.3.1"
 
+local _G = getfenv(0)
+
 local spellCache = {}
-local actions = {}    
 local lastUpdate = 0    
-local currentAction = nil    
-local currentSequence = nil    
-local mouseOverUnit = nil    
+local currentAction
+local mouseOverUnit
+
+local actions = {}    
 local macros = {}    
-local castSequenceCache = {}   
- 
+local sequences = {}
+local currentSequence
+
 local actionEventHandlers = {}
 local mouseOverResolvers = {}
 
@@ -29,15 +32,25 @@ local function Log(text)
     DEFAULT_CHAT_FRAME:AddMessage("|cFF00CCCCCleverMacros ::|r " .. text)
 end
 
-local function Split(s, p)
+local function Seq(_, i)
+    return (i or 0) + 1
+end
+
+local function Split(s, p, trim)
     local r, o = {}, 1
     repeat
         local b, e = string.find(s, p, o)
         if b == nil then
-            table.insert(r, string.sub(s, o))
+            local sub = string.sub(s, o)
+            table.insert(r, trim and Trim(sub) or sub)
             return r
         end
-        table.insert(r, string.sub(s, o, e - 1))
+        if b > 1 then
+            local sub = string.sub(s, o, b - 1)
+            table.insert(r, trim and Trim(sub) or sub)
+        else
+            table.insert(r, "")
+        end
         o = e + 1
     until false
 end
@@ -46,8 +59,7 @@ local function GetSpellInfo(spellSlot)
     frame:SetOwner(WorldFrame, "ANCHOR_NONE")
     frame:SetSpell(spellSlot, "spell") 
     local _, _, cost = string.find(frame.costFontString:GetText() or "", "^(%d+)")
-    if cost ~= nil then cost = tonumber(cost) end
-    return cost
+    return tonumber(cost)
 end
 
 local function GetSpellSlotByName(name)
@@ -190,8 +202,6 @@ local function TestConditions(conditions, target)
     return true, target
 end
 
-
-
 local function ParseArguments(s)
     if Trim(s) == "" then return {} end
     
@@ -254,56 +264,59 @@ local function ParseArguments(s)
     return args
 end
 
-local function ParseArguments_Cast(s)
-    local spells = ParseArguments(s)
+local COMMANDS = {
+    ["/cast"] =  function(args) 
+        for _, arg in ipairs(args) do
+            arg.spellSlot = GetSpellSlotByName(Trim(arg.text))
+        end
+    end,
     
-    for _, spell in ipairs(spells) do
-        spell.spellSlot = GetSpellSlotByName(Trim(spell.text))
-    end
-
-    return spells
-end
-
-local function ParseArguments_CastSequence(s)
-    s = Trim(s)
-    local sequence = castSequenceCache[s]
-    if sequence then return sequence end
-
-    sequence = ParseArguments(s)
-    if not sequence or not sequence[1] then return end
+    ["/castsequence"] = function(args)
+        sequence = args[1]
+        if not sequence then return end
+        
+        sequence.index = 1
+        sequence.reset = {}
+        sequence.spells = {}
+        sequence.status = 0
     
-    sequence = sequence[1]
+        local _, e, reset = string.find(sequence.text, "^%s*reset=([%w/]+)%s*")
+        s = e and string.sub(sequence.text, e + 1) or sequence.text
 
-    sequence.index = 1
-    sequence.reset = {}
-    sequence.spells = {}
-    sequence.status = 0
-    
-    castSequenceCache[s] = sequence
-    
-    local _, e, reset = string.find(sequence.text, "^%s*reset=([%w/]+)%s*")
-    s = e and string.sub(sequence.text, e + 1) or sequence.text
-
-    if reset then
-        for _, rule in ipairs(Split(reset, "/")) do
-            local secs = tonumber(rule)
-            if secs and secs > 0 then
-                if not sequence.reset.secs or secs < sequence.reset.secs then
-                    sequence.reset.secs = secs
+        if reset then
+            for _, rule in ipairs(Split(reset, "/")) do
+                local secs = tonumber(rule)
+                if secs and secs > 0 then
+                    if not sequence.reset.secs or secs < sequence.reset.secs then
+                        sequence.reset.secs = secs
+                    end
+                else
+                    sequence.reset[rule] = true
                 end
-            else
-                sequence.reset[rule] = true
             end
         end
-    end
     
-    for _, name in ipairs(Split(s, ",")) do
-        local spellSlot = GetSpellSlotByName(Trim(name))
-        table.insert(sequence.spells, GetSpellSlotByName(Trim(name)))
-    end
+        for _, name in ipairs(Split(s, ",")) do
+            local spellSlot = GetSpellSlotByName(Trim(name))
+            table.insert(sequence.spells, GetSpellSlotByName(Trim(name)))
+        end
+    end,
+    
+    ["/target"] = true,
+    
+    ["/stopmacro"] = true
+
+}
+
+local function ParseArguments_CastSequence(s)
+
     
     return sequence
 end
+
+local PROCESS_SLASH_COMMANDS = { 
+    "/cast", "/castsequence", "/target", "/stopmacro"
+}
 
 local function ParseMacro(name)
     local macroIndex = GetMacroIndexByName(name)
@@ -317,8 +330,8 @@ local function ParseMacro(name)
         iconTexture = iconTexture,
         commands = {}
     }
-    
-    for i, line in ipairs(Split(body, "\n")) do
+
+    for i, line in ipairs(Split(body, "\n", true)) do
         if i == 1 then
             local _, _, s = string.find(line, "^%s*#showtooltip(.*)$")
             if s and not string.find(s, "^%w") then
@@ -332,20 +345,58 @@ local function ParseMacro(name)
                 end
             end
         end  
-
+        
         if i > 1 or not macro.tooltips then
-            local _, _, name, s = string.find(line, "^%s*/(%w+)(.*)$")
-            if s and not string.find(s, "^%w") then
+            local _, e, name = string.find(line, "^(/%w+)%s*")
+            if name then
                 local command = {
                     name = name,
-                    args = s
+                    text = string.sub(line, e + 1)
                 }
+                
                 table.insert(macro.commands, command)
-                if name == "cast" then
-                    command.spells = ParseArguments_Cast(s)
-                elseif name == "castsequence" then
-                    command.sequence = ParseArguments_CastSequence(s)
+
+                local cmd = COMMANDS[name]
+                if cmd then
+                    command.args = ParseArguments(command.text)
+                    if type(cmd) == "function" then
+                        cmd(command.args)
+                    end
+                    if name == "/castsequence" then
+                        table.insert(sequences, command.args[1])
+                    end
                 end
+                
+
+                -- Search for a corresponding slash command.
+                for cmd, fn in pairs(SlashCmdList) do
+                    for i in Seq do
+                        local cmdt = _G["SLASH_" .. cmd .. i]
+                        if not cmdt then break end
+                        if cmdt == name then
+                            command.fn = fn
+                            break
+                        end
+                    end
+                    if command.fn then break end
+                end
+
+                -- Search for a corresponding emote.
+                for i in Seq do
+                    local n = 0
+                    for j in Seq do
+                        local cmdt = _G["EMOTE" .. i .. "_CMD" .. j]
+                        if not cmdt then break end
+                        n = n + 1
+                        if cmdt == name then
+                            command.emote = string.sub(name, 2)
+                            break
+                        end
+                    end
+                    if n == 0 or command.emote then break end
+                end
+            elseif line ~= "" then
+                table.insert(macro.commands, { text = line })
             end
         end
     end
@@ -353,6 +404,7 @@ local function ParseMacro(name)
     return macro
 end
 
+    
 local function GetMacroTooltipSpellSlot(macro)
     local spellSlot
     
@@ -367,26 +419,35 @@ local function GetMacroTooltipSpellSlot(macro)
     end
 
     for _, command in ipairs(macro.commands) do
-        if command.name == "cast" then
-            for _, spell in ipairs(command.spells) do
-                for _, conditionGroup in ipairs(spell.conditionGroups) do
+        if command.name == "/cast" then
+            for _, arg in ipairs(command.args) do
+                for _, conditionGroup in ipairs(arg.conditionGroups) do
                     if TestConditions(conditionGroup.conditions, conditionGroup.target) then
-                        return spell.spellSlot
+                        return arg.spellSlot
                     end
                 end
             end
-        end
-        if command.name == "castsequence" then
-            for _, conditionGroup in ipairs(command.sequence.conditionGroups) do
+        elseif command.name == "/stopmacro" then
+            if not command.args[1] then return end
+            for _, arg in ipairs(command.args) do
+                for _, conditionGroup in ipairs(arg.conditionGroups) do
+                    if TestConditions(conditionGroup.conditions, conditionGroup.target) then
+                        return
+                    end
+                end
+            end
+        elseif command.name == "/castsequence" then
+            for _, conditionGroup in ipairs(command.args[1].conditionGroups) do
                 if TestConditions(conditionGroup.conditions, conditionGroup.target) then
-                    if command.sequence.index > 1 then
+                    local sequence = command.args[1]
+                    if sequence.index > 1 then
                         local reset = false
-                        reset = command.sequence.reset.shift and IsShiftKeyDown() 
-                        reset = reset or (command.sequence.reset.alt and IsAltKeyDown())
-                        reset = reset or (command.sequence.reset.ctrl and IsControlKeyDown())
-                        return command.sequence.spells[reset and 1 or command.sequence.index]
+                        reset = sequence.reset.shift and IsShiftKeyDown() 
+                        reset = reset or (sequence.reset.alt and IsAltKeyDown())
+                        reset = reset or (sequence.reset.ctrl and IsControlKeyDown())
+                        return sequence.spells[reset and 1 or sequence.index]
                     else
-                        return command.sequence.spells[command.sequence.index]
+                        return sequence.spells[sequence.index]
                     end
                 end
             end
@@ -399,6 +460,20 @@ local function GetMacro(name)
     if macro then return macro end
     macros[name] = ParseMacro(name)
     return macros[name]
+end
+
+local function RunMacro(macro)
+    for _, command in ipairs(macro.commands) do
+        if command.fn then 
+            local r = command.fn(command.text, command)
+            if r ~= nil and r == false then break end
+        elseif command.emote then
+            DoEmote(command.emote)
+        else
+            ChatFrameEditBox:SetText(command.text);
+            ChatEdit_SendText(ChatFrameEditBox);
+        end
+    end
 end
 
 local function GetAction(slot)
@@ -468,25 +543,30 @@ local function SendEventForAction(slot, event, ...)
     end
 end
 
+
+
 --------------------------------------------------------------------------------
 -- Overrides                                                                   -
 --------------------------------------------------------------------------------
 
 local base = {}
 
-base.SendChatMessage = SendChatMessage
-function SendChatMessage(msg, ...)
-    if currentAction and string.find(msg, "^%s*#showtooltip") then
-        return
-    end
-    base.SendChatMessage(msg, unpack(arg))
-end
+-- base.SendChatMessage = SendChatMessage
+-- function SendChatMessage(msg, ...)
+    -- if currentAction and string.find(msg, "^%s*#showtooltip") then
+        -- return
+    -- -- end
+    -- base.SendChatMessage(msg, unpack(arg))
+-- end
 
 base.UseAction = UseAction
 function UseAction(slot, checkCursor, onSelf)
-    currentAction = GetAction(slot)
-    base.UseAction(slot, checkCursor, onSelf)
-    currentAction = nil
+    local action = GetAction(slot)
+    if action and action.macro then
+        RunMacro(action.macro)
+    else
+        base.UseAction(slot, checkCursor, onSelf)
+    end
 end
 
 base.GameTooltip = {}
@@ -565,35 +645,41 @@ end
 local function OnUpdate(self)
     local time = GetTime()
 
-    local sequence = currentSequence
-    
-    if sequence and sequence.status >= 2 and 
-            (time - sequence.lastUpdate) >= 0.2 then
-        if sequence.status == 2 then
-            if sequence.index >= table.getn(sequence.spells) then
-                sequence.index = 1
-            else
-                sequence.index = sequence.index + 1
-            end
-        end
-        for slot, action in ipairs(actions) do
-            for _, command in ipairs(action.macro.commands) do
-                if command.sequence == sequence then
-                    SendEventForAction(slot, "ACTIONBAR_SLOT_CHANGED", slot)
-                end
-            end
-        end
-        currentSequence = nil
-    end
-    
     -- Slow down a bit.
     if (time - lastUpdate) < 0.1 then return end
     lastUpdate = time
 
-    for cmd, sequence in pairs(castSequenceCache) do
-        if currentSequence ~= sequence and sequence.index > 1 then
-            if sequence.reset.secs and (time - sequence.lastUpdate) >= sequence.reset.secs then
-                sequence.index = 1
+    if currentSequence and currentSequence.status >= 2 and 
+            (time - currentSequence.lastUpdate) >= 0.2 then
+        if currentSequence.status == 2 then
+            if currentSequence.index >= table.getn(currentSequence.spells) then
+                currentSequence.index = 1
+            else
+                currentSequence.index = currentSequence.index + 1
+            end
+        end
+
+        for slot, action in pairs(actions) do
+            for _, command in ipairs(action.macro.commands) do
+                if command.name == "/castsequence" and command.args[1] == currentSequence then
+                    SendEventForAction(slot, "ACTIONBAR_SLOT_CHANGED", slot)
+                end
+            end
+        end
+
+        currentSequence = nil
+    end
+
+    for _, sequence in ipairs(sequences) do
+        if sequence.index > 1 and sequence.reset.secs and (time - sequence.lastUpdate) >= sequence.reset.secs then
+            sequence.index = 1
+            
+            for slot, action in pairs(actions) do
+                for _, command in ipairs(action.macro.commands) do
+                    if command.name == "/castsequence" and command.args[1] == sequence then
+                        SendEventForAction(slot, "ACTIONBAR_SLOT_CHANGED", slot)
+                    end
+                end
             end
         end
     end
@@ -621,18 +707,18 @@ local function OnEvent()
         currentSequence = nil
         macros = {}
         actions = {}
-        castSequenceCache = {}
+        sequences = {}
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
         actions[arg1] = nil
         SendEventForAction(arg1, "ACTIONBAR_SLOT_CHANGED", arg1)
     elseif event == "PLAYER_LEAVE_COMBAT" then
-        for cmd, sequence in pairs(castSequenceCache) do
+        for _, sequence in pairs(sequences) do
             if currentSequence ~= sequence and sequence.index > 1 and sequence.reset.combat then
                 sequence.index = 1
             end
         end
     elseif event == "PLAYER_TARGET_CHANGED" then
-        for cmd, sequence in pairs(castSequenceCache) do
+        for _, sequence in pairs(sequences) do
             if currentSequence ~= sequence and sequence.index > 1 and sequence.reset.target then
                 sequence.index = 1
             end
@@ -673,11 +759,15 @@ frame:RegisterEvent("SPELLS_CHANGED")
 -- Slash Commands                                                              -
 --------------------------------------------------------------------------------
 
-SlashCmdList["CAST"] = function(msg)
-    local spells = ParseArguments_Cast(msg)
-    
-    for _, spell in ipairs(spells) do
-        for _, conditionGroup in ipairs(spell.conditionGroups) do
+SlashCmdList["CAST"] = function(msg, command)
+    local args = command and command.args
+    if not args then
+        args = ParseArguments(msg)
+        COMMANDS["/cast"](args)
+    end
+
+    for _, arg in ipairs(args) do
+        for _, conditionGroup in ipairs(arg.conditionGroups) do
             local result, target = TestConditions(conditionGroup.conditions, conditionGroup.target)
             if result then
                 local retarget = not UnitIsUnit(target, "target")
@@ -686,7 +776,7 @@ SlashCmdList["CAST"] = function(msg)
                     if not UnitIsUnit(target, "target") then return end
                 end            
             
-                CastSpell(spell.spellSlot, "spell")
+                CastSpell(arg.spellSlot, "spell")
                 if retarget then TargetLastTarget() end
                 return
             end
@@ -694,10 +784,18 @@ SlashCmdList["CAST"] = function(msg)
     end
 end
 
-SlashCmdList["CASTSEQUENCE"] = function(msg)
-    local sequence = ParseArguments_CastSequence(msg)
+SlashCmdList["CASTSEQUENCE"] = function(msg, command)
+    local args = command and command.args
 
     if currentSequence then return end
+
+    if not args then
+        args = ParseArguments(msg)
+        COMMANDS["/castsequence"](args)
+    end
+
+    local sequence = args[1]
+    if not sequence then return end
     
     for _, conditionGroup in ipairs(sequence.conditionGroups) do
         local result, target = TestConditions(conditionGroup.conditions, conditionGroup.target)
@@ -713,10 +811,11 @@ SlashCmdList["CASTSEQUENCE"] = function(msg)
             local spellSlot = sequence.spells[sequence.index]
             
             if spellSlot then
-                currentSequence = sequence
                 sequence.status = 0
                 sequence.lastUpdate = GetTime()
 
+                currentSequence = sequence
+                
                 local retarget = not UnitIsUnit(target, "target")
                 if retarget then
                     TargetUnit(target)
@@ -732,8 +831,23 @@ SlashCmdList["CASTSEQUENCE"] = function(msg)
     end
 end
 
+SlashCmdList["STOPMACRO"] = function(msg, command)
+    if command then 
+        if command.args[1] then
+            for _, conditionGroup in ipairs(command.args[1].conditionGroups) do
+                if TestConditions(conditionGroup.conditions, conditionGroup.target) then
+                    return false
+                end
+            end
+            return true
+        end
+        return false
+    end
+end
+
 SlashCmdList["CANCELFORM"] = function(msg)
     local args = ParseArguments(msg)
+    
     if args[1] then
         for _, conditionGroup in ipairs(args[1].conditionGroups) do
             local result = TestConditions(conditionGroup.conditions, conditionGroup.target)
@@ -782,6 +896,7 @@ end
 
 SLASH_CANCELFORM1 = "/cancelform"
 SLASH_CASTSEQUENCE1 = "/castsequence"
+SLASH_STOPMACRO1 = "/stopmacro"
 
 -- Exports
 
@@ -800,5 +915,5 @@ CleverMacro.RegisterMouseOverResolver = function(fn)
 end
 
 CleverMacro.Log = Log
-     
+
 DEFAULT_CHAT_FRAME:AddMessage("|cFF00CCCCCleverMacro |r" .. VERSION .. "|cFF00CCCC loaded|r")
