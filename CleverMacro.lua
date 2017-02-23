@@ -150,7 +150,7 @@ local function TestConditions(conditions, target)
         elseif mod == "harm" then
             result = UnitCanAttack("player", target)
         elseif mod == "dead" then
-            result = UnitIsDead(target) or UnitIsGhost()
+            result = UnitIsDead(target) or UnitIsGhost(target)
         elseif mod == "combat" then
             result = UnitAffectingCombat("player")
         elseif mod == "mod" or mod == "modifier" then
@@ -270,7 +270,9 @@ local function ParseArguments_CastSequence(s)
     if sequence then return sequence end
 
     sequence = ParseArguments(s)
-    if not sequence then return sequence end
+    if not sequence or not sequence[1] then return end
+    
+    sequence = sequence[1]
 
     sequence.index = 1
     sequence.reset = {}
