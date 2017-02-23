@@ -576,6 +576,13 @@ local function OnUpdate(self)
                 sequence.index = sequence.index + 1
             end
         end
+        for slot, action in ipairs(actions) do
+            for _, command in ipairs(action.macro.commands) do
+                if command.sequence == sequence then
+                    SendEventForAction(slot, "ACTIONBAR_SLOT_CHANGED", slot)
+                end
+            end
+        end
         currentSequence = nil
     end
     
