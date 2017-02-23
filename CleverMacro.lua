@@ -2,7 +2,7 @@
 -- CleverMacro v1.3.1 by _brain                                    -
 --------------------------------------------------------------------------------
 
-local VERSION = "1.3.1"
+local VERSION = "1.4"
 
 local _G = getfenv(0)
 
@@ -143,14 +143,6 @@ end
 local function TestConditions(conditions, target)
     local result = true
 
-    if target == "mouseover" or target == "mo" then
-        target = GetMouseOverUnit() or "mouseover"
-    end
-
-    if not IsUnitValid(target) then
-        target = "target"
-    end
-    
     for k, v in pairs(conditions) do
         local _, no = string.find(k, "^no")
         local mod = no and string.sub(k, no + 1) or k
@@ -199,18 +191,34 @@ local function TestConditions(conditions, target)
         if not result then return false end
     end
     
-    return true, target
+    return true
+end
+
+local function GetArg(args)
+    for _, arg in ipairs(args) do
+        for _, conditionGroup in ipairs(arg.conditionGroups) do
+            local target = conditionGroup.target
+
+            if target == "mouseover" or target == "mo" then
+                target = GetMouseOverUnit() or "mouseover"
+            end
+
+            if not IsUnitValid(target) then
+                target = "target"
+            end
+
+            local result = TestConditions(conditionGroup.conditions, target)
+            if result then return arg, target end
+        end
+    end
 end
 
 local function ParseArguments(s)
-    if Trim(s) == "" then return {} end
-    
     local args = {}
     
     for _, sarg in ipairs(Split(s, ";")) do
         local arg = { 
-            conditionGroups = {}, 
-            text = nil
+            conditionGroups = {}
         }
         table.insert(args, arg)
         
@@ -308,12 +316,6 @@ local COMMANDS = {
 
 }
 
-local function ParseArguments_CastSequence(s)
-
-    
-    return sequence
-end
-
 local PROCESS_SLASH_COMMANDS = { 
     "/cast", "/castsequence", "/target", "/stopmacro"
 }
@@ -409,46 +411,27 @@ local function GetMacroTooltipSpellSlot(macro)
     local spellSlot
     
     if macro.tooltips then
-        for _, tooltip in ipairs(macro.tooltips) do
-            for _, conditionGroup in ipairs(tooltip.conditionGroups) do
-                if TestConditions(conditionGroup.conditions, conditionGroup.target) then
-                    return tooltip.spellSlot
-                end
-            end
-        end
+        local tooltip = GetArg(macro.tooltips)
+        if tooltip then return tooltip.spellSlot end
     end
-
+    
     for _, command in ipairs(macro.commands) do
         if command.name == "/cast" then
-            for _, arg in ipairs(command.args) do
-                for _, conditionGroup in ipairs(arg.conditionGroups) do
-                    if TestConditions(conditionGroup.conditions, conditionGroup.target) then
-                        return arg.spellSlot
-                    end
-                end
-            end
+            local arg = GetArg(command.args)
+            if arg then return arg.spellSlot end
         elseif command.name == "/stopmacro" then
-            if not command.args[1] then return end
-            for _, arg in ipairs(command.args) do
-                for _, conditionGroup in ipairs(arg.conditionGroups) do
-                    if TestConditions(conditionGroup.conditions, conditionGroup.target) then
-                        return
-                    end
-                end
-            end
+            if GetArg(command.args) then return end
         elseif command.name == "/castsequence" then
-            for _, conditionGroup in ipairs(command.args[1].conditionGroups) do
-                if TestConditions(conditionGroup.conditions, conditionGroup.target) then
-                    local sequence = command.args[1]
-                    if sequence.index > 1 then
-                        local reset = false
-                        reset = sequence.reset.shift and IsShiftKeyDown() 
-                        reset = reset or (sequence.reset.alt and IsAltKeyDown())
-                        reset = reset or (sequence.reset.ctrl and IsControlKeyDown())
-                        return sequence.spells[reset and 1 or sequence.index]
-                    else
-                        return sequence.spells[sequence.index]
-                    end
+            local arg = GetArg(command.args)
+            if arg then
+                if arg.index > 1 then
+                    local reset = false
+                    reset = arg.reset.shift and IsShiftKeyDown() 
+                    reset = reset or (arg.reset.alt and IsAltKeyDown())
+                    reset = reset or (arg.reset.ctrl and IsControlKeyDown())
+                    return arg.spells[reset and 1 or arg.index]
+                else
+                    return arg.spells[arg.index]
                 end
             end
         end
@@ -550,14 +533,6 @@ end
 --------------------------------------------------------------------------------
 
 local base = {}
-
--- base.SendChatMessage = SendChatMessage
--- function SendChatMessage(msg, ...)
-    -- if currentAction and string.find(msg, "^%s*#showtooltip") then
-        -- return
-    -- -- end
-    -- base.SendChatMessage(msg, unpack(arg))
--- end
 
 base.UseAction = UseAction
 function UseAction(slot, checkCursor, onSelf)
@@ -766,22 +741,17 @@ SlashCmdList["CAST"] = function(msg, command)
         COMMANDS["/cast"](args)
     end
 
-    for _, arg in ipairs(args) do
-        for _, conditionGroup in ipairs(arg.conditionGroups) do
-            local result, target = TestConditions(conditionGroup.conditions, conditionGroup.target)
-            if result then
-                local retarget = not UnitIsUnit(target, "target")
-                if retarget then
-                    TargetUnit(target)
-                    if not UnitIsUnit(target, "target") then return end
-                end            
-            
-                CastSpell(arg.spellSlot, "spell")
-                if retarget then TargetLastTarget() end
-                return
-            end
-        end
-    end
+    local arg, target = GetArg(args)
+    if not arg then return end
+    
+    local retarget = not UnitIsUnit(target, "target")
+    if retarget then
+        TargetUnit(target)
+        if not UnitIsUnit(target, "target") then return end
+    end            
+
+    CastSpell(arg.spellSlot, "spell")
+    if retarget then TargetLastTarget() end
 end
 
 SlashCmdList["CASTSEQUENCE"] = function(msg, command)
@@ -794,72 +764,45 @@ SlashCmdList["CASTSEQUENCE"] = function(msg, command)
         COMMANDS["/castsequence"](args)
     end
 
-    local sequence = args[1]
-    if not sequence then return end
+    local arg, target = GetArg(args)
+    if not arg then return end
+
+    if arg.index > 1 then
+        local reset = false
+        reset = arg.reset.shift and IsShiftKeyDown() 
+        reset = reset or (arg.reset.alt and IsAltKeyDown())
+        reset = reset or (arg.reset.ctrl and IsControlKeyDown())
+        if reset then arg.index = 1 end
+    end
+
+    local spellSlot = arg.spells[arg.index]
     
-    for _, conditionGroup in ipairs(sequence.conditionGroups) do
-        local result, target = TestConditions(conditionGroup.conditions, conditionGroup.target)
-        if result then
-            if sequence.index > 1 then
-                local reset = false
-                reset = sequence.reset.shift and IsShiftKeyDown() 
-                reset = reset or (sequence.reset.alt and IsAltKeyDown())
-                reset = reset or (sequence.reset.ctrl and IsControlKeyDown())
-                if reset then sequence.index = 1 end
-            end
+    if spellSlot then
+        arg.status = 0
+        arg.lastUpdate = GetTime()
 
-            local spellSlot = sequence.spells[sequence.index]
-            
-            if spellSlot then
-                sequence.status = 0
-                sequence.lastUpdate = GetTime()
-
-                currentSequence = sequence
-                
-                local retarget = not UnitIsUnit(target, "target")
-                if retarget then
-                    TargetUnit(target)
-                    if not UnitIsUnit(target, "target") then return end
-                end
-                
-                CastSpell(spellSlot, "spell")
-                if retarget then TargetLastTarget() end
-            end
-            return
+        currentSequence = arg
+        
+        local retarget = not UnitIsUnit(target, "target")
+        if retarget then
+            TargetUnit(target)
+            if not UnitIsUnit(target, "target") then return end
         end
         
+        CastSpell(spellSlot, "spell")
+        if retarget then TargetLastTarget() end
     end
 end
 
 SlashCmdList["STOPMACRO"] = function(msg, command)
-    if command then 
-        if command.args[1] then
-            for _, conditionGroup in ipairs(command.args[1].conditionGroups) do
-                if TestConditions(conditionGroup.conditions, conditionGroup.target) then
-                    return false
-                end
-            end
-            return true
-        end
+    if command and GetArg(command.args) then 
         return false
     end
 end
 
 SlashCmdList["CANCELFORM"] = function(msg)
-    local args = ParseArguments(msg)
-    
-    if args[1] then
-        for _, conditionGroup in ipairs(args[1].conditionGroups) do
-            local result = TestConditions(conditionGroup.conditions, conditionGroup.target)
-            if result then 
-                CancelShapeshiftForm()
-                return
-            end
-        end
-        return
-    end
-    
-    CancelShapeshiftForm()
+    local arg = GetArg(command and command.args or ParseArguments(msg))
+    if arg then CancelShapeshiftForm() end
 end
 
 base.SlashCmdList = {}
@@ -867,18 +810,12 @@ base.SlashCmdList = {}
 base.SlashCmdList.TARGET = SlashCmdList["TARGET"]
 
 SlashCmdList["TARGET"] = function(msg)
-    local args = ParseArguments(msg)
-    if args[1] then
-        for _, conditionGroup in ipairs(args[1].conditionGroups) do
-            local result, target = TestConditions(conditionGroup.conditions, conditionGroup.target)
-            if result then
-                if target ~= "target" then
-                    TargetUnit(target)
-                else
-                    base.SlashCmdList.TARGET(args[1].text)
-                end
-                return
-            end
+    local arg, target = GetArg(command and command.args or ParseArguments(msg))
+    if arg then
+        if target ~= "target" then
+            TargetUnit(target)
+        else
+            base.SlashCmdList.TARGET(args[1].text)
         end
     end
 end
