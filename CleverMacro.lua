@@ -6,7 +6,6 @@ local VERSION = "1.4"
 
 local _G = getfenv(0)
 
-local spellCache = {}
 local lastUpdate = 0    
 local currentAction
 local mouseOverUnit
@@ -18,6 +17,8 @@ local currentSequence
 
 local actionEventHandlers = {}
 local mouseOverResolvers = {}
+
+local items = {}
 
 local frame
 
@@ -64,25 +65,19 @@ end
 
 local function GetSpellSlotByName(name)
     name = string.lower(name)
-    
-    local index = spellCache[name]
-    if index ~= nil and index < 0 then
-        return nil
-    end
+    local b, _, rank = string.find(name, "%(%s*rank%s+(%d+)%s*%)");
+    if b then name = (b > 1) and Trim(string.sub(name, 1, b - 1)) or "" end
 
-    for tabIndex = 1, GetNumSpellTabs() do
+    for tabIndex = GetNumSpellTabs(), 1, -1 do
         local _, _, offset, count = GetSpellTabInfo(tabIndex)
-        for index = offset + 1, offset + count do
-            local spell, rank = GetSpellName(index, "spell")
-            spell = string.lower(spell) rank = string.lower(rank)
-            spellCache[spell] = index
-            spellCache[spell .. "(" .. rank .. ")"] = index
+        for index = offset + count, offset + 1, -1 do
+            local spell, subSpell = GetSpellName(index, "spell")
+            spell = string.lower(spell) 
+            if name == spell and (not rank or subSpell == "Rank " .. rank) then
+                return index
+            end
         end
     end
-
-    local index = spellCache[name]
-    if index == nil then spellCache[name] = -1 end
-    return index;
 end
 
 local function GetCurrentShapeshiftForm()
@@ -90,7 +85,6 @@ local function GetCurrentShapeshiftForm()
         local _, _, active = GetShapeshiftFormInfo(index)
         if active then return index end
     end
-    return nil
 end    
     
 local function CancelShapeshiftForm(index)
@@ -272,10 +266,12 @@ local function ParseArguments(s)
     return args
 end
 
+
+
 local COMMANDS = {
     ["/cast"] =  function(args) 
         for _, arg in ipairs(args) do
-            arg.spellSlot = GetSpellSlotByName(Trim(arg.text))
+            arg.spellSlot = GetSpellSlotByName(arg.text)
         end
     end,
     
@@ -309,15 +305,20 @@ local COMMANDS = {
             table.insert(sequence.spells, GetSpellSlotByName(Trim(name)))
         end
     end,
+
+    ["/use"] = function(args)
+        for itemID, item in pairs(items) do
+            for _, arg in ipairs(args) do
+                if string.lower(arg.text) == string.lower(item.name) then
+                    arg.itemID = itemID
+                end
+            end
+        end
+    end,
     
     ["/target"] = true,
     
     ["/stopmacro"] = true
-
-}
-
-local PROCESS_SLASH_COMMANDS = { 
-    "/cast", "/castsequence", "/target", "/stopmacro"
 }
 
 local function ParseMacro(name)
@@ -406,33 +407,43 @@ local function ParseMacro(name)
     return macro
 end
 
-    
-local function GetMacroTooltipSpellSlot(macro)
-    local spellSlot
-    
+local function GetMacroInfo(macro)
     if macro.tooltips then
-        local tooltip = GetArg(macro.tooltips)
-        if tooltip and tooltip.spellSlot then return tooltip.spellSlot end
+        local arg = GetArg(macro.tooltips)
+        if arg and arg.spellSlot then 
+            return "spell", arg.spellSlot, 
+                GetSpellTexture(arg.spellSlot, "spell")
+        end
     end
     
     for _, command in ipairs(macro.commands) do
         if command.name == "/cast" then
             local arg = GetArg(command.args)
-            if arg then return arg.spellSlot end
-        elseif command.name == "/stopmacro" then
-            if GetArg(command.args) then return end
+            if arg and arg.spellSlot then
+                return "spell", arg.spellSlot,
+                    GetSpellTexture(arg.spellSlot, "spell")
+            end
         elseif command.name == "/castsequence" then
             local arg = GetArg(command.args)
             if arg then
-                if arg.index > 1 then
-                    local reset = false
-                    reset = arg.reset.shift and IsShiftKeyDown() 
-                    reset = reset or (arg.reset.alt and IsAltKeyDown())
-                    reset = reset or (arg.reset.ctrl and IsControlKeyDown())
-                    return arg.spells[reset and 1 or arg.index]
-                else
-                    return arg.spells[arg.index]
+                local reset = false
+                reset = arg.reset.shift and IsShiftKeyDown() 
+                reset = reset or (arg.reset.alt and IsAltKeyDown())
+                reset = reset or (arg.reset.ctrl and IsControlKeyDown())
+                    
+                local spellSlot = arg.spells[reset and 1 or arg.index]
+                
+                if spellSlot then
+                    return "spell", spellSlot,
+                        GetSpellTexture(arg.spellSlot, "spell")
                 end
+            end
+        elseif command.name == "/stopmacro" then
+            if GetArg(command.args) then break end
+        elseif command.name == "/use" then
+            local arg = GetArg(command.args)
+            if arg and arg.itemID then
+                return "item", arg.itemID, items[arg.itemID].texture
             end
         end
     end
@@ -459,6 +470,32 @@ local function RunMacro(macro)
     end
 end
 
+local function RefreshAction(action)
+    local spellSlot, itemID = action.spellSlot, action.itemID
+    local type, value, texture = GetMacroInfo(action.macro)
+    
+    action.texture = texture
+
+    if type == "spell" then
+        action.cost = GetSpellInfo(value)
+        action.usable = (not action.cost) or (UnitMana("player") >= action.cost)
+        action.itemID = nil
+        action.spellSlot = value
+    elseif type == "item" then
+        action.cost = 0
+        action.usable = true
+        action.itemID = value
+        action.spellSlot = nil
+    else
+        action.cost = 0
+        action.usable = true
+        action.itemID = nil
+        action.spellSlot = nil
+    end
+    
+    return usable ~= action.usable or spellSlot ~= action.spellSlot or itemID ~= action.itemID
+end
+
 local function GetAction(slot)
     local action = actions[slot]
     if action then return action end
@@ -471,14 +508,10 @@ local function GetAction(slot)
             action = {
                 text = text,
                 macro = macro,
-                spellSlot = GetMacroTooltipSpellSlot(macro)
+                slot = slot
             }
 
-            if action.spellSlot then
-                action.cost = GetSpellInfo(action.spellSlot)
-                action.usable = (not action.cost) or (UnitMana("player") >= action.cost)
-            end
-            
+            RefreshAction(action)
             actions[slot] = action 
             return action
         end
@@ -496,17 +529,17 @@ local function SendEventForAction(slot, event, ...)
     -- Classic support.
     
     if slot >= 73 then
-        this = getglobal("BonusActionButton" .. pageSlot)
+        this = _G["BonusActionButton" .. pageSlot]
         if this then ActionButton_OnEvent(event) end
     else
         if slot >= 61 then
-            this = getglobal("MultiBarBottomLeftButton" .. pageSlot)
+            this = _G["MultiBarBottomLeftButton" .. pageSlot]
         elseif slot >= 49 then
-            this = getglobal("MultiBarBottomRightButton" .. pageSlot)
+            this = _G["MultiBarBottomRightButton" .. pageSlot]
         elseif slot >= 37 then
-            this = getglobal("MultiBarRightButton" .. pageSlot)
+            this = _G["MultiBarRightButton" .. pageSlot]
         elseif slot >= 25 then
-            this = getglobal("MultiBarLeftButton" .. pageSlot)
+            this = _G["MultiBarLeftButton" .. pageSlot]
         else
             this = nil
         end
@@ -514,7 +547,7 @@ local function SendEventForAction(slot, event, ...)
         if this then ActionButton_OnEvent(event) end
         
         if page == CURRENT_ACTIONBAR_PAGE then
-            this = getglobal("ActionButton" .. pageSlot)
+            this = _G["ActionButton" .. pageSlot]
             if this then ActionButton_OnEvent(event) end
         end
     end
@@ -526,7 +559,29 @@ local function SendEventForAction(slot, event, ...)
     end
 end
 
-
+local function IndexItems()
+    items = {}
+    for bagID = NUM_BAG_SLOTS, 0, -1 do
+        for slot = GetContainerNumSlots(bagID), 1, -1 do
+            local link = GetContainerItemLink(bagID, slot)
+            if link then
+                local _, _, itemID = string.find(link, "item:(%d+)")
+                if itemID then
+                    local name, _, _, _, _, _, _, _, texture = GetItemInfo(itemID)
+                    local item = {
+                        bagID = bagID,
+                        slot = slot,
+                        id = itemID,
+                        name = name,
+                        texture = texture
+                    }
+                    _, _, item.link = string.find(link, "|H([^|]+)|h")
+                    items[itemID] = item
+                end
+            end
+        end
+    end
+end
 
 --------------------------------------------------------------------------------
 -- Overrides                                                                   -
@@ -555,6 +610,9 @@ function GameTooltip.SetAction(self, slot)
             local _, rank = GetSpellName(action.spellSlot, "spell")
             GameTooltipTextRight1:SetText("|cff808080" .. rank .."|r");
             GameTooltipTextRight1:Show();
+            GameTooltip:Show()
+        elseif action.itemLink then
+            GameTooltip:SetHyperlink(action.itemLink)
             GameTooltip:Show()
         end
     else
@@ -589,11 +647,8 @@ end
 base.GetActionTexture = GetActionTexture
 function GetActionTexture(slot)
     local action = GetAction(slot)
-    if action and action.macro then
-        if not action.macro.tooltips then return action.macro.iconTexture end
-        local spellSlot = GetMacroTooltipSpellSlot(action.macro)
-        if spellSlot then return GetSpellTexture(spellSlot, "spell") end
-        return "Interface\\Icons\\INV_Misc_QuestionMark"
+    if action and action.macro and action.macro.tooltips then
+        return action.texture or "Interface\\Icons\\INV_Misc_QuestionMark"
     else
         return base.GetActionTexture(slot)
     end
@@ -605,11 +660,31 @@ function GetActionCooldown(slot)
     if action and action.macro then
         if action.spellSlot then
             return GetSpellCooldown(action.spellSlot, "spell")
-        else
-            return 0, 0, 0
+        elseif action.itemID then
+            local item = items[action.itemID]
+            if item then
+                if item.bagID and item.slot then
+                    return GetContainerItemCooldown(item.bagID, item.slot)
+                end
+            end
         end
+        return 0, 0, 0
     else
         return base.GetActionCooldown(slot)
+    end
+end
+
+base.SlashCmdList = {}
+
+base.SlashCmdList.TARGET = SlashCmdList["TARGET"]
+SlashCmdList["TARGET"] = function(msg)
+    local arg, target = GetArg(command and command.args or ParseArguments(msg))
+    if arg then
+        if target ~= "target" then
+            TargetUnit(target)
+        else
+            base.SlashCmdList.TARGET(args[1].text)
+        end
     end
 end
 
@@ -660,19 +735,8 @@ local function OnUpdate(self)
     end
     
     for slot, action in pairs(actions) do
-        local spellSlot = GetMacroTooltipSpellSlot(action.macro)
-        
-        if action.spellSlot ~= spellSlot then
-            action.spellSlot = spellSlot
-            action.cost = spellSlot and GetSpellInfo(spellSlot) or nil
-            action.usable = (not action.cost) or (UnitMana("player") >= action.cost)
+        if RefreshAction(action) then
             SendEventForAction(slot, "ACTIONBAR_SLOT_CHANGED", slot)
-        else
-            local usable = (not action.cost) or (UnitMana("player") >= action.cost)
-            if usable ~= action.usable then
-                action.usable = usable
-                SendEventForAction(slot, "ACTIONBAR_UPDATE_USABLE")
-            end
         end
     end
 end
@@ -683,6 +747,8 @@ local function OnEvent()
         macros = {}
         actions = {}
         sequences = {}
+
+        IndexItems()
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
         actions[arg1] = nil
         SendEventForAction(arg1, "ACTIONBAR_SLOT_CHANGED", arg1)
@@ -730,6 +796,8 @@ frame:RegisterEvent("PLAYER_LEAVE_COMBAT")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 frame:RegisterEvent("SPELLS_CHANGED")
 
+
+
 --------------------------------------------------------------------------------
 -- Slash Commands                                                              -
 --------------------------------------------------------------------------------
@@ -742,7 +810,7 @@ SlashCmdList["CAST"] = function(msg, command)
     end
 
     local arg, target = GetArg(args)
-    if not arg then return end
+    if not arg or not arg.spellSlot then return end
     
     local retarget = not UnitIsUnit(target, "target")
     if retarget then
@@ -751,6 +819,32 @@ SlashCmdList["CAST"] = function(msg, command)
     end            
 
     CastSpell(arg.spellSlot, "spell")
+    if retarget then TargetLastTarget() end
+end
+
+SlashCmdList["USE"] = function(msg, command)
+    local args = command and command.args
+    if not args then
+        args = ParseArguments(msg)
+        COMMANDS["/use"](args)
+    end
+
+    local arg, target = GetArg(args)
+    if not arg or not arg.itemID then return end
+
+    local item = items[arg.itemID]
+    if not item then return end
+    
+    local retarget = not UnitIsUnit(target, "target")
+    if retarget then
+        TargetUnit(target)
+        if not UnitIsUnit(target, "target") then return end
+    end            
+
+    if item.bagID and item.slot then
+        UseContainerItem(item.bagID, item.slot)
+    end
+
     if retarget then TargetLastTarget() end
 end
 
@@ -805,35 +899,10 @@ SlashCmdList["CANCELFORM"] = function(msg)
     if arg then CancelShapeshiftForm() end
 end
 
-base.SlashCmdList = {}
-
-base.SlashCmdList.TARGET = SlashCmdList["TARGET"]
-
-SlashCmdList["TARGET"] = function(msg)
-    local arg, target = GetArg(command and command.args or ParseArguments(msg))
-    if arg then
-        if target ~= "target" then
-            TargetUnit(target)
-        else
-            base.SlashCmdList.TARGET(args[1].text)
-        end
-    end
-end
-
--- Not implemented yet. 
-SlashCmdList["XFOCUS"] = function(msg)
-    local _, target = process(msg)
-    if target ~= nil then
-        focus = GetUnitName(target)
-        if focus ~= nil then
-            log("New focus " .. focus)
-        end
-    end
-end
-
 SLASH_CANCELFORM1 = "/cancelform"
 SLASH_CASTSEQUENCE1 = "/castsequence"
 SLASH_STOPMACRO1 = "/stopmacro"
+SLASH_USE1 = "/use"
 
 -- Exports
 
