@@ -537,9 +537,9 @@ local function SendEventForAction(slot, event, ...)
         elseif slot >= 49 then
             this = _G["MultiBarBottomRightButton" .. pageSlot]
         elseif slot >= 37 then
-            this = _G["MultiBarRightButton" .. pageSlot]
-        elseif slot >= 25 then
             this = _G["MultiBarLeftButton" .. pageSlot]
+        elseif slot >= 25 then
+            this = _G["MultiBarRightButton" .. pageSlot]
         else
             this = nil
         end
