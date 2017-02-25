@@ -435,14 +435,14 @@ local function GetMacroInfo(macro)
                 
                 if spellSlot then
                     return "spell", spellSlot,
-                        GetSpellTexture(arg.spellSlot, "spell")
+                        GetSpellTexture(spellSlot, "spell")
                 end
             end
         elseif command.name == "/stopmacro" then
             if GetArg(command.args) then break end
         elseif command.name == "/use" then
             local arg = GetArg(command.args)
-            if arg and arg.itemID then
+            if arg and arg.itemID and items[arg.itemID]  then
                 return "item", arg.itemID, items[arg.itemID].texture
             end
         end
@@ -561,12 +561,12 @@ end
 
 local function IndexItems()
     items = {}
-    for bagID = NUM_BAG_SLOTS, 0, -1 do
+    for bagID = 0, NUM_BAG_SLOTS do
         for slot = GetContainerNumSlots(bagID), 1, -1 do
             local link = GetContainerItemLink(bagID, slot)
             if link then
                 local _, _, itemID = string.find(link, "item:(%d+)")
-                if itemID then
+                if itemID and not items[itemID] then
                     local name, _, _, _, _, _, _, _, texture = GetItemInfo(itemID)
                     local item = {
                         bagID = bagID,
@@ -578,6 +578,24 @@ local function IndexItems()
                     _, _, item.link = string.find(link, "|H([^|]+)|h")
                     items[itemID] = item
                 end
+            end
+        end
+    end
+    
+    for inventoryID = 0, 19 do
+        local link = GetInventoryItemLink("player", inventoryID)
+        if link then
+            local _, _, itemID = string.find(link, "item:(%d+)")
+            if itemID and not items[itemID] then
+                local name, _, _, _, _, _, _, _, texture = GetItemInfo(itemID)
+                local item = {
+                    inventoryID = inventoryID,
+                    id = itemID,
+                    name = name,
+                    texture = texture
+                }
+                _, _, item.link = string.find(link, "|H([^|]+)|h")
+                items[itemID] = item
             end
         end
     end
@@ -665,6 +683,8 @@ function GetActionCooldown(slot)
             if item then
                 if item.bagID and item.slot then
                     return GetContainerItemCooldown(item.bagID, item.slot)
+                elseif item.inventoryID then
+                    return GetInventoryItemCooldown("player", item.inventoryID)
                 end
             end
         end
@@ -843,6 +863,8 @@ SlashCmdList["USE"] = function(msg, command)
 
     if item.bagID and item.slot then
         UseContainerItem(item.bagID, item.slot)
+    elseif item.inventoryID then
+        UseInventoryItem(item.inventoryID)
     end
 
     if retarget then TargetLastTarget() end
