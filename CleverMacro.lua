@@ -193,10 +193,16 @@ local function GetArg(args)
         for _, conditionGroup in ipairs(arg.conditionGroups) do
             local target = conditionGroup.target
 
-            if target == "mouseover" or target == "mo" then
-                target = GetMouseOverUnit() or "mouseover"
+            local _, _, subTarget = string.find(target, "^mouseover(.*)")
+            
+            if not subTarget then
+                _, _, subTarget = string.find(target, "^mo(.*)")
             end
-
+            
+            if subTarget then 
+                target = (GetMouseOverUnit() or "mouseover") .. subTarget
+            end
+            
             if not IsUnitValid(target) then
                 target = "target"
             end
@@ -832,11 +838,11 @@ SlashCmdList["CAST"] = function(msg, command)
 
     local arg, target = GetArg(args)
     if not arg or not arg.spellSlot then return end
-    
+
     local retarget = not UnitIsUnit(target, "target")
     if retarget then
         TargetUnit(target)
-        if not UnitIsUnit(target, "target") then return end
+        -- if not UnitIsUnit(target, "target") then return end
     end            
 
     CastSpell(arg.spellSlot, "spell")
@@ -859,7 +865,7 @@ SlashCmdList["USE"] = function(msg, command)
     local retarget = not UnitIsUnit(target, "target")
     if retarget then
         TargetUnit(target)
-        if not UnitIsUnit(target, "target") then return end
+        -- if not UnitIsUnit(target, "target") then return end
     end            
 
     if item.bagID and item.slot then
@@ -903,7 +909,7 @@ SlashCmdList["CASTSEQUENCE"] = function(msg, command)
         local retarget = not UnitIsUnit(target, "target")
         if retarget then
             TargetUnit(target)
-            if not UnitIsUnit(target, "target") then return end
+            -- if not UnitIsUnit(target, "target") then return end
         end
         
         CastSpell(spellSlot, "spell")
