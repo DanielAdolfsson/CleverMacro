@@ -30,7 +30,7 @@ local function Trim(s)
 end
 
 local function Log(text)
-    DEFAULT_CHAT_FRAME:AddMessage("|cFF00CCCCCleverMacros ::|r " .. text)
+    DEFAULT_CHAT_FRAME:AddMessage("|cFF00CCCCCleverMacro ::|r " .. text)
 end
 
 local function Seq(_, i)
@@ -370,7 +370,6 @@ local function ParseMacro(name)
                     end
                 end
                 
-
                 -- Search for a corresponding slash command.
                 for cmd, fn in pairs(SlashCmdList) do
                     for i in Seq do
@@ -703,7 +702,7 @@ SlashCmdList["TARGET"] = function(msg)
         if target ~= "target" then
             TargetUnit(target)
         else
-            base.SlashCmdList.TARGET(args[1].text)
+            base.SlashCmdList.TARGET(arg.text)
         end
     end
 end
@@ -767,11 +766,12 @@ local function OnEvent()
         macros = {}
         actions = {}
         sequences = {}
-
         IndexItems()
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
         actions[arg1] = nil
         SendEventForAction(arg1, "ACTIONBAR_SLOT_CHANGED", arg1)
+    elseif event == "BAG_UPDATE" then
+        IndexItems()
     elseif event == "PLAYER_LEAVE_COMBAT" then
         for _, sequence in pairs(sequences) do
             if currentSequence ~= sequence and sequence.index > 1 and sequence.reset.combat then
@@ -815,6 +815,7 @@ frame:RegisterEvent("SPELLCAST_INTERRUPTED")
 frame:RegisterEvent("PLAYER_LEAVE_COMBAT")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 frame:RegisterEvent("SPELLS_CHANGED")
+frame:RegisterEvent("BAG_UPDATE")
 
 
 
