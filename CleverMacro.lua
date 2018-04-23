@@ -134,6 +134,16 @@ local function GetMouseOverUnit()
     end
 end
 
+local function HasBuff(textureName)
+    for i = 1, 16 do
+        if UnitBuff("player", i) == textureName then
+            return true;
+        end
+    end
+    
+    return false;
+end
+
 local function TestConditions(conditions, target)
     local result = true
 
@@ -150,7 +160,9 @@ local function TestConditions(conditions, target)
         elseif mod == "dead" then
             result = UnitIsDead(target) or UnitIsGhost(target)
         elseif mod == "combat" then
-            result = UnitAffectingCombat("player")
+            result = UnitAffectingCombat("player")            
+	elseif mod == "stealth" then
+            result = HasBuff("Interface\\Icons\\Ability_Ambush")
         elseif mod == "mod" or mod == "modifier" then
             if v == true then
                 result = IsAltKeyDown() or IsControlKeyDown() or IsShiftKeyDown()
