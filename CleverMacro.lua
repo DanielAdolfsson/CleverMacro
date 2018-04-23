@@ -161,7 +161,7 @@ local function TestConditions(conditions, target)
             result = UnitIsDead(target) or UnitIsGhost(target)
         elseif mod == "combat" then
             result = UnitAffectingCombat("player")            
-		elseif mod == "stealth" then
+	elseif mod == "stealth" then
             result = HasBuff("Interface\\Icons\\Ability_Ambush")
         elseif mod == "mod" or mod == "modifier" then
             if v == true then
